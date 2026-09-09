@@ -1,8 +1,7 @@
-#![allow(unused)]
+#![allow(mixed_script_confusables, unused)]
 #![feature(autodiff)]
 
-use core::autodiff;
-use std::{autodiff::*, io};
+use std::{autodiff::*, io, io::*};
 
 const MASS: f64 = 1.0;
 const SPIN: f64 = 0.8;
@@ -28,8 +27,8 @@ struct Pt {
 }
 
 fn radius(x: f64, y: f64, z: f64, rev: bool) -> f64 {
-    let D = x*x + y*y + z*z - SPIN*SPIN;
-    let result = f64::sqrt(0.5 * (D + f64::sqrt(D*D + 4.0 * (SPIN*SPIN) * (z*z))));
+    let d = x*x + y*y + z*z - SPIN*SPIN;
+    let result = f64::sqrt(0.5 * (d + f64::sqrt(d*d + 4.0 * (SPIN*SPIN) * (z*z))));
     if rev {
         - result
     } else {
@@ -44,18 +43,18 @@ fn _flip(
     t: &mut f64, x: &mut f64, y: &mut f64
 ) {
     let r0 = radius(x0, y0, z0, rev);
-    let Δ𝜑 = 2.0 * f64::atan2(SPIN, r0)
+    let δφ = 2.0 * f64::atan2(SPIN, r0)
         + SPIN / f64::sqrt(MASS*MASS - SPIN*SPIN) *
         f64::ln(f64::abs((r0 - R_OUTER)/(r0 - R_INNER)));
-    let Δt = 2.0 * MASS / f64::sqrt(MASS*MASS - SPIN*SPIN) * (
+    let δt = 2.0 * MASS / f64::sqrt(MASS*MASS - SPIN*SPIN) * (
         R_OUTER * f64::ln(f64::abs((r0 - R_OUTER)/(2.0 * MASS))) -
         R_INNER * f64::ln(f64::abs((r0 - R_INNER)/(2.0 * MASS)))
     );
-    let cos = f64::cos(Δ𝜑);
-    let sin = f64::sin(Δ𝜑);
+    let cos = f64::cos(δφ);
+    let sin = f64::sin(δφ);
     *x = cos * x0 + sin * y0;
     *y = sin * x0 - cos * y0;
-    *t = Δt - t0;
+    *t = δt - t0;
 }
 
 fn flip(t0: f64, x0: f64, y0: f64, z0: f64, rev: bool) -> (f64, f64, f64) {
@@ -159,7 +158,7 @@ impl Pt {
             self.base
         };
         // If we are not in the middle region, then our parallel universe status flips
-        let is_middle = (R_INNER < self.radius && self.radius < R_OUTER);
+        let is_middle = R_INNER < self.radius && self.radius < R_OUTER;
         let parallel = is_middle == self.parallel;
         let time_rev = is_middle == self.time_rev;
         Pt {
@@ -180,12 +179,11 @@ impl Pt {
         let x1 = x + dx;
         let y1 = y + dy;
         let z1 = z + dz;
-        if (z.signum() * z1.signum() == -1.0) {
+        if z.signum() * z1.signum() == -1.0 {
             let u = - z / dz;
             let x0 = x + u * dx;
             let y0 = y + u * dy;
-            if (x0*x0 + y0*y0 < SPIN*SPIN) {
-                let t0 = t + u * dt;
+            if x0*x0 + y0*y0 < SPIN*SPIN {
                 return Pt::new(
                     (t1, x1, y1, z1),
                     self.base, self.parallel, self.time_rev,
@@ -211,7 +209,7 @@ impl Tangent {
     fn modulus(self: &Self) -> f64 {
         let r = self.pt.radius;
         let ra = r*r + SPIN*SPIN;
-        let (t, x, y, z) = self.pt.coord;
+        let (_t, x, y, z) = self.pt.coord;
         let (qt, qx, qy, qz) = self.vec;
         let qk = qt + qx * (r*x + SPIN*y)/ra + qy * (r*y - SPIN*x)/ra + qz * z/r;
         let h = ks_scalar(z, r);
@@ -221,7 +219,7 @@ impl Tangent {
     fn dual(self: &Self) -> Cotangent {
         let r = self.pt.radius;
         let ra = r*r + SPIN*SPIN;
-        let (t, x, y, z) = self.pt.coord;
+        let (_t, x, y, z) = self.pt.coord;
         let (qt, qx, qy, qz) = self.vec;
         let qk = qt + qx * (r*x + SPIN*y)/ra + qy * (r*y - SPIN*x)/ra + qz * z/r;
         let h = ks_scalar(z, r);
@@ -260,7 +258,7 @@ impl Tangent {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Copy)]
 struct Cotangent {
     covec: Quad,
     pt: Pt,
@@ -310,14 +308,14 @@ impl CotangentDelta {
     }
 
     fn error(self: &Self, rhs: &Self) -> f64 {
-        (self.pt.0 - rhs.pt.0).abs().max(
-        (self.pt.1 - rhs.pt.1).abs().max(
-        (self.pt.2 - rhs.pt.2).abs().max(
-        (self.pt.3 - rhs.pt.3).abs().max(
-        (self.covec.0 - rhs.covec.0).abs().max(
-        (self.covec.1 - rhs.covec.1).abs().max(
-        (self.covec.2 - rhs.covec.2).abs().max(
-        (self.covec.3 - rhs.covec.3).abs())))))))
+        (self.pt.0 - rhs.pt.0).abs()
+            .max((self.pt.1 - rhs.pt.1).abs())
+            .max((self.pt.2 - rhs.pt.2).abs())
+            .max((self.pt.3 - rhs.pt.3).abs())
+            .max((self.covec.0 - rhs.covec.0).abs())
+            .max((self.covec.1 - rhs.covec.1).abs())
+            .max((self.covec.2 - rhs.covec.2).abs())
+            .max((self.covec.3 - rhs.covec.3).abs())
     }
 }
 
@@ -325,7 +323,7 @@ impl Cotangent {
     fn modulus(self: &Self) -> f64 {
         let r = self.pt.radius;
         let ra = r*r + SPIN*SPIN;
-        let (t, x, y, z) = self.pt.coord;
+        let (_t, x, y, z) = self.pt.coord;
         let (qt, qx, qy, qz) = self.covec;
         let qk = qt - qx * (r*x + SPIN*y)/ra - qy * (r*y - SPIN*x)/ra - qz * z/r;
         let h = ks_scalar(z, r);
@@ -335,7 +333,7 @@ impl Cotangent {
     fn dual(self: &Self) -> Tangent {
         let r = self.pt.radius;
         let ra = r*r + SPIN*SPIN;
-        let (t, x, y, z) = self.pt.coord;
+        let (_t, x, y, z) = self.pt.coord;
         let (qt, qx, qy, qz) = self.covec;
         let qk = qt - qx * (r*x + SPIN*y)/ra - qy * (r*y - SPIN*x)/ra - qz * z/r;
         let h = ks_scalar(z, r);
@@ -418,12 +416,11 @@ impl Cotangent {
 }
 
 const TOLERANCE: f64 = 1e-14;
-fn rk45(state: Cotangent, param: f64) -> Vec<Cotangent> {
+fn rk45(state: Cotangent) -> impl Iterator<Item = (f64, Cotangent)> {
     let mut state = state;
     let mut eps = 1e-3;
     let mut cur = 0.0;
-    let mut trajectory = vec![state.clone()];
-    while (cur < param) {
+    std::iter::from_fn(move || loop {
         let k1 = state.dynamics().scale(eps);
         let k2 = state.nudge(k1.scale(1./4.)).dynamics().scale(eps);
         let k3 = state.nudge(k1.scale(3./32.) + k2.scale(9./32.)).dynamics().scale(eps);
@@ -443,35 +440,24 @@ fn rk45(state: Cotangent, param: f64) -> Vec<Cotangent> {
         // println!("{eps}");
         cur += eps;
         state = state.nudge(r6);
-        trajectory.push(state.clone());
-    }
-    trajectory
+        return Some((cur, state));
+    })
 }
 
 fn main() {
-    use std::io::Write;
     let mut stderr = io::stderr();
-    let mut cov = Tangent {
+    let cov = Tangent {
         vec: (6.0, 0.0, 0.5, 0.0),
         pt: Pt::new(
             (0.0, 50.0, 0.0, 1.0),
             0, false, false,false
         ),
     }.dual();
-    /*
-    let mut i = 0;
-    loop {
-        i += 1;
-        for j in 0..10000 {
-            if j % 100 == 0 {
-                println!("{:},{:},{:}", cov.pt.coord.1, cov.pt.coord.2, cov.pt.coord.3);
-            }
-            cov = cov.leapfrog(0.0001);
-        }
-        writeln!(stderr, "{i}\t{:.7} {:.7} {:.7} {:.7}", cov.dual().modulus(), cov.modulus(), cov.energy(), cov.angular());
+    let time = std::time::SystemTime::now();
+    println!("{:}", cov.angular());
+    for (t, st) in rk45(cov) {
+        writeln!(stderr, "{:.7} {:.7} {:.7}", st.modulus(), st.energy(), st.angular()).unwrap();
+        if t > 1000.0 { break; }
     }
-    */
-    for st in rk45(cov, 100.0) {
-        writeln!(stderr, "{:.7} {:.7} {:.7}", st.modulus(), st.energy(), st.angular());
-    }
+    println!("Elapsed: {:?}", time.elapsed());
 }
