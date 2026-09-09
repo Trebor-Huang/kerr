@@ -1,0 +1,10 @@
+[package]
+name = "kerr"
+version = "0.1.0"
+edition = "2024"
+
+[profile.dev]
+lto = "fat"  # Required by enzyme (??)
+
+[profile.release]
+lto = "fat"
