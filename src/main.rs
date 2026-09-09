@@ -398,7 +398,7 @@ impl Cotangent {
             self.covec.0, self.covec.1, self.covec.2, self.covec.3
         );
         CotangentDelta {
-            covec: (0.0, 0.5*dpx, 0.5*dpy, 0.5*dpz),
+            covec: (0.0, -0.5*dpx, -0.5*dpy, -0.5*dpz),
             pt: self.dual().vec,
         }
     }
