@@ -435,6 +435,9 @@ fn rk45(state: Cotangent) -> impl Iterator<Item = (f64, Cotangent)> {
         eps *= (0.9 * f64::powf(TOLERANCE / error, 1./5.))
             .max(0.2).min(2.0);
         if error >= TOLERANCE {
+            if eps < 1e-15 {
+                return None;  // We can't do it anymore
+            }
             continue;
         }
         // println!("{eps}");
@@ -446,18 +449,27 @@ fn rk45(state: Cotangent) -> impl Iterator<Item = (f64, Cotangent)> {
 
 fn main() {
     let mut stderr = io::stderr();
+    let lock = io::stdout().lock();
+    let mut stdout = BufWriter::new(lock);
     let cov = Tangent {
-        vec: (6.0, 0.0, 0.5, 0.0),
+        vec: (1.0, 0.0, -0.45, 0.0),
         pt: Pt::new(
-            (0.0, 50.0, 0.0, 1.0),
+            (0.0, 0.0003, -0.0002, 5.0),
             0, false, false,false
         ),
     }.dual();
-    let time = std::time::SystemTime::now();
-    println!("{:}", cov.angular());
-    for (t, st) in rk45(cov) {
-        writeln!(stderr, "{:.7} {:.7} {:.7}", st.modulus(), st.energy(), st.angular()).unwrap();
-        if t > 1000.0 { break; }
+    if cov.modulus() > 0.0 {
+        writeln!(stderr, "Spacelike, {:}", cov.modulus());
     }
-    println!("Elapsed: {:?}", time.elapsed());
+    let time = std::time::SystemTime::now();
+    for (i, (t, st)) in rk45(cov).enumerate() {
+        writeln!(stdout, "{:},{:},{:}", st.pt.coord.1, st.pt.coord.2, st.pt.coord.3).unwrap();
+        if i % 1000 == 0 {
+            writeln!(stderr, "{:.7} {:.7} {:.7}",
+                st.modulus(), st.energy(), st.angular()).unwrap();
+        }
+        if t > 1000.0 || i > 1000_000 { break; }
+    }
+    stdout.flush().unwrap();
+    writeln!(stderr, "Elapsed: {:?}", time.elapsed()).unwrap();
 }
