@@ -113,6 +113,7 @@ fn diff_inv_sq(x: f64, y: f64, z: f64, rev: bool, qt: f64, qx: f64, qy: f64, qz:
     (r.1, r.2, r.3)
 }
 
+#[inline]
 fn ks_scalar(z: f64, r: f64) -> f64 {
     MASS * (r.powi(3))/(r.powi(4) + (SPIN*SPIN) * (z*z))
 }
@@ -230,6 +231,7 @@ impl Pt {
         );
     }
 
+    #[inline]
     fn incoming(self: &Self) -> Quad {
         let (t,x,y,z) = self.coord;
         let r = self.radius;
@@ -241,6 +243,7 @@ impl Pt {
         )
     }
 
+    #[inline]
     fn incoming_dual(self: &Self) -> Quad {
         let (t,x,y,z) = self.coord;
         let r = self.radius;
@@ -252,6 +255,7 @@ impl Pt {
         )
     }
 
+    #[inline]
     fn outgoing(self: &Self) -> Quad {
         let (t,x,y,z) = self.coord;
         let r = self.radius;
@@ -264,11 +268,21 @@ impl Pt {
         )
     }
 
+    #[inline]
     fn outgoing_dual(self: &Self) -> Quad {
-        //  TODO
-        Tangent { vec: self.outgoing(), pt: *self }.dual().covec
+        let (qt, qx, qy, qz) = self.outgoing();
+        let (kt, kx, ky, kz) = self.incoming_dual();
+        let qk = self.incoming_outgoing_dot();
+        let h = 2.0 * ks_scalar(self.coord.3, self.radius) * qk;
+        (
+            - qt + h * kt,
+            qx + h * kx,
+            qy + h * ky,
+            qz + h * kz
+        )
     }
 
+    #[inline]
     fn incoming_outgoing_dot(self: &Self) -> f64 {
         let r = self.radius;
         let (_, x, y, _) = self.coord;
@@ -749,7 +763,7 @@ fn main() {
                 t,
                 st.modulus(), st.energy(), st.angular(), st.carter()).unwrap();
         }
-        if t > 100.0 || i > 1000_000 { break; }
+        if t > 1000.0 || i > 1000_000 { break; }
     }
     stdout.flush().unwrap();
     writeln!(stderr, "Elapsed: {:?}", time.elapsed()).unwrap();
