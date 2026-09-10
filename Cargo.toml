@@ -8,3 +8,6 @@ lto = "fat"  # Required by enzyme (??)
 
 [profile.release]
 lto = "fat"
+
+[dev-dependencies]
+rand = "0.10.2"
