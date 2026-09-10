@@ -27,6 +27,7 @@ struct Pt {
     radius: f64,
 }
 
+#[inline]
 fn radius(x: f64, y: f64, z: f64, rev: bool) -> f64 {
     let d = x*x + y*y + z*z - SPIN*SPIN;
     let result = f64::sqrt(0.5 * (d + f64::sqrt(d*d + 4.0 * (SPIN*SPIN) * (z*z))));
@@ -37,6 +38,7 @@ fn radius(x: f64, y: f64, z: f64, rev: bool) -> f64 {
     }
 }
 
+// TODO better numerical behavior
 #[autodiff_forward(_fflip, Dual, Dual, Dual, Dual, Const, Dual, Dual, Dual)]
 #[autodiff_reverse(_rflip, Active, Active, Active, Active, Const, Duplicated, Duplicated, Duplicated)]
 fn _flip(
@@ -44,9 +46,15 @@ fn _flip(
     t: &mut f64, x: &mut f64, y: &mut f64
 ) {
     let r0 = radius(x0, y0, z0, rev);
-    let δφ = 2.0 * f64::atan2(SPIN, r0)
-        + SPIN / f64::sqrt(MASS*MASS - SPIN*SPIN) *
-        f64::ln(f64::abs((r0 - R_OUTER)/(r0 - R_INNER)));
+    let δφ = if f64::abs(r0) < 1.0 {
+        2.0 * f64::atan2(SPIN, r0)
+            + SPIN / f64::sqrt(MASS*MASS - SPIN*SPIN) *
+            f64::ln(f64::abs((r0 - R_OUTER)/(r0 - R_INNER)))
+    } else {
+        2.0 * f64::atan2(SPIN, r0)
+            + SPIN / f64::sqrt(MASS*MASS - SPIN*SPIN) *
+            f64::ln(f64::abs((1.0 - R_OUTER/r0)/(1.0 - R_INNER/r0)))
+    };
     let δt = 2.0 * MASS / f64::sqrt(MASS*MASS - SPIN*SPIN) * (
         R_OUTER * f64::ln(f64::abs((r0 - R_OUTER)/(2.0 * MASS))) -
         R_INNER * f64::ln(f64::abs((r0 - R_INNER)/(2.0 * MASS)))
@@ -212,7 +220,7 @@ impl Pt {
         let x1 = x + dx;
         let y1 = y + dy;
         let z1 = z + dz;
-        if z.signum() * z1.signum() == -1.0 {
+        if (z.signum() * z1.signum()).is_sign_negative() {
             let u = - z / dz;
             let x0 = x + u * dx;
             let y0 = y + u * dy;
@@ -707,14 +715,72 @@ mod tests {
         assert!(k_err < ERR * NUM as f64);
         assert!(l_err < ERR * NUM as f64);
     }
+
+    #[test]
+    fn rk45_conserved() {
+        let cov = Tangent {
+            vec: (1.0, 0.0, -0.45, 0.0),
+            pt: Pt::new(
+                (0.0, 0.0003, -0.0002, 5.0),
+                0, false, false,false
+            ),
+        }.dual();
+        for (i, (t, st)) in rk45(cov).enumerate() {
+            if t > 10000.0 || i > 1000_000 {
+                assert!((st.modulus() - cov.modulus()).abs() < 1e-10);
+                assert!((st.energy() - cov.energy()).abs() < 1e-10);
+                assert!((st.angular() - cov.angular()).abs() < 1e-10);
+                assert!((st.carter() - cov.carter()).abs() < 1e-10);
+                break;
+            }
+        }
+    }
 }
 
 const TOLERANCE: f64 = 1e-14;
 fn rk45(state: Cotangent) -> impl Iterator<Item = (f64, Cotangent)> {
+    // Assumes we are future-directed and timelike
     let mut state = state;
     let mut eps = 1e-3;
     let mut cur = 0.0;
+    let mut flipped = false;
     std::iter::from_fn(move || loop {
+        // If we are in the inner horizon and future directed
+        // or if we are in the outer horizon and past directed
+        // we switch immediately
+        if eps < 1e-3 {  // Only consider switching when we are slowing down
+        if state.pt.radius <= R_INNER {
+            if !state.pt.time_rev {
+                flipped = !flipped;
+                state = state.flip();
+            }
+        } else if state.pt.radius >= R_OUTER {
+            if state.pt.time_rev {
+                flipped = !flipped;
+                state = state.flip();
+            }
+        } else {
+            /* Otherwise, switching happens in between the two horizons
+            From geodesics equations we know the term that blows up is
+                a/(Delta, negative) * (2m r E - aL)
+            So we want to check if  a * (2 m r_horizon E - a L)  is positive
+            Flip otherwise.
+
+            (This is the same as dotting with horizon generating vector fields)
+            TODO figure out "hovering" geodesics
+            */
+            let should_flip = SPIN.is_sign_positive() ^
+                (2.0*MASS*(if state.pt.time_rev {R_OUTER} else {R_INNER})*state.energy()
+                - SPIN*state.angular()).is_sign_positive() ^
+                state.pt.time_rev;
+            if should_flip {
+                flipped = !flipped;
+                state = state.flip();
+            }
+        }
+        }
+
+
         let k1 = state.dynamics().scale(eps);
         let k2 = state.nudge(k1.scale(1./4.)).dynamics().scale(eps);
         let k3 = state.nudge(k1.scale(3./32.) + k2.scale(9./32.)).dynamics().scale(eps);
@@ -726,18 +792,18 @@ fn rk45(state: Cotangent) -> impl Iterator<Item = (f64, Cotangent)> {
         let r6 = k1.scale(16./135.) + k3.scale(6656./12825.) + k4.scale(28561./56430.) + k5.scale(-9./50.) + k6.scale(2./55.);
 
         let error = r5.error(&r6);
-        eps *= (0.9 * f64::powf(TOLERANCE / error, 1./5.))
+        eps *= (0.8 * f64::powf(TOLERANCE / error, 1./5.))
             .max(0.2).min(2.0);
         if error >= TOLERANCE {
-            if eps < 1e-15 {
-                return None;  // We can't do it anymore
+            if eps < 1e-12 {
+                panic!("Step size is too small: {eps}")
             }
             continue;
         }
         // println!("{eps}");
         cur += eps;
         state = state.nudge(r6);
-        return Some((cur, state));
+        return Some((cur, if flipped { state.flip() } else { state }));
     })
 }
 
@@ -746,24 +812,26 @@ fn main() {
     let lock = io::stdout().lock();
     let mut stdout = BufWriter::new(lock);
     let cov = Tangent {
-        vec: (1.0, 0.0, -0.45, 0.0),
+        vec: (1.3, -1.0, -0.2, 0.2),
         pt: Pt::new(
-            (0.0, 0.0003, -0.0002, 5.0),
-            0, false, false,false
+            (0.0, 0.0, 1.2, 0.0),
+            0, false, false, false
         ),
     }.dual();
     if cov.modulus() > 0.0 {
         writeln!(stderr, "Spacelike, {:}", cov.modulus());
+        return;
     }
     let time = std::time::SystemTime::now();
     for (i, (t, st)) in rk45(cov).enumerate() {
-        writeln!(stdout, "{:},{:},{:}", st.pt.coord.1, st.pt.coord.2, st.pt.coord.3).unwrap();
+        writeln!(stdout, "{i},{:},{:},{:},{:},{:}", t, st.pt.coord.1, st.pt.coord.2, st.pt.coord.3, st.pt.radius).unwrap();
         if i % 100 == 0 {
-            writeln!(stderr, "{:.2}  m={:.7}  E={:.7}  L={:.7}  Q={:.7}",
+            writeln!(stderr, "#{i:>5}  t={:>5.2}  m={:>10.7}  E={:>10.7}  L={:>10.7}  Q={:>10.7}",
                 t,
-                st.modulus(), st.energy(), st.angular(), st.carter()).unwrap();
+                st.modulus(), st.energy(), st.angular(), st.carter()
+            ).unwrap();
         }
-        if t > 1000.0 || i > 1000_000 { break; }
+        if t > 13.0 || i > 100000 { break; }
     }
     stdout.flush().unwrap();
     writeln!(stderr, "Elapsed: {:?}", time.elapsed()).unwrap();
