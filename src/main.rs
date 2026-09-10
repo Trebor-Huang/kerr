@@ -348,16 +348,6 @@ impl Tangent {
             pt: self.pt.flip(),
         }
     }
-
-    // The point given by moving along the tangent vector direction for delta
-    fn nudge(self: &Self, delta: f64) -> Pt {
-        self.pt.nudge((
-            self.vec.0 * delta,
-            self.vec.1 * delta,
-            self.vec.2 * delta,
-            self.vec.3 * delta
-        ))
-    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -528,7 +518,7 @@ mod tests {
     }
 
     fn rand_pt() -> Pt {
-        let (mut t,mut x,mut y,mut z) = (0.,0.,0.,0.);
+        let (mut t,mut x,mut y,mut z): Quad;
         loop {
             (t,x,y,z) = rand_quad();
             if ((x*x + y*y).sqrt() - SPIN*SPIN).powi(2) + z*z >= 1e-6 {
@@ -819,7 +809,7 @@ fn main() {
         ),
     }.dual();
     if cov.modulus() > 0.0 {
-        writeln!(stderr, "Spacelike, {:}", cov.modulus());
+        writeln!(stderr, "Spacelike, {:}", cov.modulus()).unwrap();
         return;
     }
     let time = std::time::SystemTime::now();
