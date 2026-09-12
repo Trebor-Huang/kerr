@@ -1,4 +1,5 @@
 pub mod kerr_schild;
+pub mod boyer_lindquist;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum RegionType {

@@ -78,7 +78,7 @@ fn flip_cotangent(
         t, x, y, z0, rev,
         &mut t, &mut d_dt, &mut x, &mut d_dx, &mut y, &mut d_dy
     );
-    ((t, x, y), (d_dt0, d_dx0, d_dy0, d_dz0 + d_dz))
+    ((t, x, y), Quad::new(d_dt0, d_dx0, d_dy0, d_dz0 + d_dz))
 }
 
 #[autodiff_reverse(_dinv_sq, Active, Active, Active, Const, Const, Const, Const, Const, Active)]
@@ -112,9 +112,10 @@ pub struct Pt {
 
 impl Pt {
     pub fn new(coord: Quad, base: i32, parallel: bool, time_rev: bool, radius_rev: bool) -> Pt {
+        let (_, x, y, z) = coord.explode();
         Pt {
             coord, base, parallel, time_rev,
-            radius: radius(coord.1, coord.2, coord.3, radius_rev),
+            radius: radius(x, y, z, radius_rev),
         }
     }
 
@@ -123,11 +124,11 @@ impl Pt {
     }
 
     #[cfg(test)]
-    pub fn error(this: &Pt, other: &Pt) -> f64 {
-        assert_eq!(this.base, other.base);
-        assert_eq!(this.parallel, other.parallel);
-        assert_eq!(this.time_rev, other.time_rev);
-        quad_error(this.coord, other.coord)
+    pub fn error(self: &Pt, other: &Pt) -> f64 {
+        assert_eq!(self.base, other.base);
+        assert_eq!(self.parallel, other.parallel);
+        assert_eq!(self.time_rev, other.time_rev);
+        self.coord.error(other.coord)
     }
 
     /// Returns the cosmological region
@@ -149,8 +150,9 @@ impl Pt {
     }
 
     pub fn flip(self: &Self) -> Self {
+        let (t0, x0, y0, z0) = self.coord.explode();
         let (t,x,y) = flip(
-            self.coord.0, self.coord.1, self.coord.2, self.coord.3,
+            t0, x0, y0, z0,
             self.radius.is_sign_negative()
         );
 
@@ -169,7 +171,7 @@ impl Pt {
         let parallel = is_middle != self.parallel;
         let time_rev = is_middle == self.time_rev;
         Pt {
-            coord: (t, x, y, self.coord.3),
+            coord: Quad::new(t, x, y, z0),
             base,
             parallel,
             time_rev,
@@ -186,26 +188,24 @@ impl Pt {
     /// Nudges the coordinate in a direction. If it went through the ring,
     /// flip the sign of the radius.
     pub fn nudge(self: &Self, delta: Quad) -> Self {
-        let (t,x,y,z) = self.coord;
-        let (dt, dx, dy, dz) = delta;
-        let t1 = t + dt;
-        let x1 = x + dx;
-        let y1 = y + dy;
-        let z1 = z + dz;
+        let (t,x,y,z) = self.coord.explode();
+        let (dt, dx, dy, dz) = delta.explode();
+        let new_coord = self.coord + delta;
+        let z1 = new_coord.explode().3;
         if (z.signum() * z1.signum()).is_sign_negative() {
             let u = - z / dz;
             let x0 = x + u * dx;
             let y0 = y + u * dy;
             if x0*x0 + y0*y0 < SPIN*SPIN {
                 return Pt::new(
-                    (t1, x1, y1, z1),
+                    new_coord,
                     self.base, self.parallel, self.time_rev,
                     !self.radius.is_sign_negative()
                 )
             }
         }
         return Pt::new(
-            (t1, x1, y1, z1),
+            new_coord,
             self.base, self.parallel, self.time_rev,
             self.radius.is_sign_negative()
         );
@@ -213,9 +213,9 @@ impl Pt {
 
     #[inline]
     pub fn incoming(self: &Self) -> Quad {
-        let (_,x,y,z) = self.coord;
+        let (_,x,y,z) = self.coord.explode();
         let r = self.radius;
-        (
+        Quad::new(
             -1.0,
             (r*x + SPIN*y)/(r*r + SPIN*SPIN),
             (r*y - SPIN*x)/(r*r + SPIN*SPIN),
@@ -225,9 +225,9 @@ impl Pt {
 
     #[inline]
     pub fn incoming_dual(self: &Self) -> Quad {
-        let (_,x,y,z) = self.coord;
+        let (_,x,y,z) = self.coord.explode();
         let r = self.radius;
-        (
+        Quad::new(
             1.0,
             (r*x + SPIN*y)/(r*r + SPIN*SPIN),
             (r*y - SPIN*x)/(r*r + SPIN*SPIN),
@@ -237,10 +237,10 @@ impl Pt {
 
     #[inline]
     pub fn outgoing(self: &Self) -> Quad {
-        let (_,x,y,z) = self.coord;
+        let (_,x,y,z) = self.coord.explode();
         let r = self.radius;
         let delta = self.discr();
-        (
+        Quad::new(
             1.0 + (4.0 * MASS * r)/delta,
             (r*x + SPIN*y)/(r*r + SPIN*SPIN) - (2.0 * SPIN * y)/delta,
             (r*y - SPIN*x)/(r*r + SPIN*SPIN) + (2.0 * SPIN * x)/delta,
@@ -250,22 +250,18 @@ impl Pt {
 
     #[inline]
     pub fn outgoing_dual(self: &Self) -> Quad {
-        let (qt, qx, qy, qz) = self.outgoing();
-        let (kt, kx, ky, kz) = self.incoming_dual();
         let qk = self.incoming_outgoing_dot();
-        let h = 2.0 * ks_scalar(self.coord.3, self.radius) * qk;
-        (
-            - qt + h * kt,
-            qx + h * kx,
-            qy + h * ky,
-            qz + h * kz
-        )
+        let h = 2.0
+            * ks_scalar(self.coord.explode().3, self.radius)
+            * qk;
+        self.outgoing() * Quad::ETA
+            + self.incoming_dual().scale(h)
     }
 
     #[inline]
     pub fn incoming_outgoing_dot(self: &Self) -> f64 {
         let r = self.radius;
-        let (_, x, y, _) = self.coord;
+        let (_, x, y, _) = self.coord.explode();
         let delta = self.discr();
         let ra = r*r + SPIN*SPIN;
         2.0 + 4.0 * MASS * r / delta - 2.0 * (SPIN*SPIN) * (x*x + y*y)/(delta * ra)
@@ -281,42 +277,37 @@ pub struct Tangent {
 impl Tangent {
     #[cfg(test)]
     pub fn error(this: &Tangent, other: &Tangent) -> f64 {
-        (Pt::error(&this.pt, &other.pt) + quad_error(this.vec, other.vec)) / 2.0
+        (Pt::error(&this.pt, &other.pt) + this.vec.error(other.vec)) / 2.0
     }
 
     pub fn modulus(self: &Self) -> f64 {
-        let (qt, qx, qy, qz) = self.vec;
-        let (kt, kx, ky, kz) = self.pt.incoming_dual();
-        let qk = kt * qt + kx * qx + ky * qy + kz * qz;
-        let h = ks_scalar(self.pt.coord.3, self.pt.radius);
-        qx*qx + qy*qy + qz*qz - qt*qt + 2.0*h*(qk*qk)
+        let qk = self.vec.dot(self.pt.incoming_dual());
+        let h = ks_scalar(self.pt.coord.explode().3, self.pt.radius);
+        self.vec.dot(self.vec * Quad::ETA)
+            + 2.0*h*(qk*qk)
     }
 
     pub fn dual(self: &Self) -> Cotangent {
-        let (qt, qx, qy, qz) = self.vec;
-        let (kt, kx, ky, kz) = self.pt.incoming_dual();
-        let qk = kt * qt + kx * qx + ky * qy + kz * qz;
-        let h = 2.0 * ks_scalar(self.pt.coord.3, self.pt.radius) * qk;
+        let q = self.vec;
+        let k = self.pt.incoming_dual();
+        let qk = q.dot(k);
+        let h = 2.0 * ks_scalar(self.pt.coord.explode().3, self.pt.radius) * qk;
         Cotangent {
-            covec: (
-                - qt + h * kt,
-                qx + h * kx,
-                qy + h * ky,
-                qz + h * kz
-            ),
+            covec: q * Quad::ETA
+                + k.scale(h),
             pt: self.pt,
         }
     }
 
     pub fn flip(self: &Self) -> Self {
-        let (t, x, y, z) = self.pt.coord;
-        let (dt, dx, dy, dz) = self.vec;
+        let (t, x, y, z) = self.pt.coord.explode();
+        let (dt, dx, dy, dz) = self.vec.explode();
         let (_, (dt1, dx1, dy1)) = flip_tangent(
             t, x, y, z, self.pt.radius.is_sign_negative(),
             dt, dx, dy, dz
         );
         Tangent {
-            vec: (dt1, dx1, dy1, dz),
+            vec: Quad::new(dt1, dx1, dy1, dz),
             pt: self.pt.flip(),
         }
     }
@@ -327,6 +318,7 @@ pub struct Cotangent {
     pub covec: Quad,
     pub pt: Pt,
 }
+#[derive(Clone, Copy)]
 pub struct CotangentDelta {
     covec: Quad,
     pt: Quad
@@ -337,111 +329,79 @@ impl std::ops::Add for CotangentDelta {
 
     fn add(self: CotangentDelta, rhs: CotangentDelta) -> CotangentDelta {
         CotangentDelta {
-            covec: (
-                self.covec.0 + rhs.covec.0,
-                self.covec.1 + rhs.covec.1,
-                self.covec.2 + rhs.covec.2,
-                self.covec.3 + rhs.covec.3,
-            ),
-            pt: (
-                self.pt.0 + rhs.pt.0,
-                self.pt.1 + rhs.pt.1,
-                self.pt.2 + rhs.pt.2,
-                self.pt.3 + rhs.pt.3,
-            ),
+            covec: self.covec + rhs.covec,
+            pt: self.pt + rhs.pt,
         }
     }
 }
 
 impl CotangentDelta {
-    pub fn scale(self: &Self, rhs: f64) -> CotangentDelta {
+    pub fn scale(self: Self, rhs: f64) -> CotangentDelta {
         CotangentDelta {
-            covec: (
-                rhs * self.covec.0,
-                rhs * self.covec.1,
-                rhs * self.covec.2,
-                rhs * self.covec.3,
-            ),
-            pt: (
-                rhs * self.pt.0,
-                rhs * self.pt.1,
-                rhs * self.pt.2,
-                rhs * self.pt.3,
-            ),
+            covec: self.covec.scale(rhs),
+            pt: self.pt.scale(rhs),
         }
     }
 
-    pub fn error(self: &Self, rhs: &Self) -> f64 {
-        (self.pt.0 - rhs.pt.0).abs()
-            .max((self.pt.1 - rhs.pt.1).abs())
-            .max((self.pt.2 - rhs.pt.2).abs())
-            .max((self.pt.3 - rhs.pt.3).abs())
-            .max((self.covec.0 - rhs.covec.0).abs())
-            .max((self.covec.1 - rhs.covec.1).abs())
-            .max((self.covec.2 - rhs.covec.2).abs())
-            .max((self.covec.3 - rhs.covec.3).abs())
+    pub fn error(self: Self, rhs: Self) -> f64 {
+        self.pt.error(rhs.pt)
+            .max(self.covec.error(rhs.covec))
     }
 }
 
 impl Cotangent {
     #[cfg(test)]
     pub fn error(this: &Cotangent, other: &Cotangent) -> f64 {
-        (Pt::error(&this.pt, &other.pt) + quad_error(this.covec, other.covec)) / 2.0
+        (Pt::error(&this.pt, &other.pt) + this.covec.error(other.covec)) / 2.0
     }
 
     pub fn modulus(self: &Self) -> f64 {
-        let (qt, qx, qy, qz) = self.covec;
-        let (kt, kx, ky, kz) = self.pt.incoming();
-        let qk = kt * qt + kx * qx + ky * qy + kz * qz;
-        let h = ks_scalar(self.pt.coord.3, self.pt.radius);
-        qx*qx + qy*qy + qz*qz - qt*qt - 2.0*h*(qk*qk)
+        let qk = self.covec.dot(self.pt.incoming());
+        let h = ks_scalar(self.pt.coord.explode().3, self.pt.radius);
+        self.covec.dot(self.covec * Quad::ETA) - 2.0*h*(qk*qk)
     }
 
     pub fn dual(self: &Self) -> Tangent {
-        let (qt, qx, qy, qz) = self.covec;
-        let (kt, kx, ky, kz) = self.pt.incoming();
-        let qk = kt * qt + kx * qx + ky * qy + kz * qz;
-        let h = 2.0 * ks_scalar(self.pt.coord.3, self.pt.radius) * qk;
+        let k = self.pt.incoming();
+        let qk = self.covec.dot(self.pt.incoming());
+        let h = 2.0 * ks_scalar(self.pt.coord.explode().3, self.pt.radius) * qk;
         Tangent {
-            vec: (
-                - qt - h * kt,
-                qx - h * kx,
-                qy - h * ky,
-                qz - h * kz
-            ),
+            vec: self.covec * Quad::ETA - k.scale(h),
             pt: self.pt,
         }
     }
 
     pub fn flip(self: &Self) -> Self {
-        let (t, x, y, z) = self.pt.coord;
-        let (dt, dx, dy, dz) = self.covec;
-        let (_, (dt1, dx1, dy1, dz1)) = flip_cotangent(
+        let (t, x, y, z) = self.pt.coord.explode();
+        let (dt, dx, dy, dz) = self.covec.explode();
+        let (_, cov) = flip_cotangent(
             t, x, y, z, self.pt.radius.is_sign_negative(),
             dt, dx, dy, dz
         );
         Cotangent {
-            covec: (dt1, dx1, dy1, dz1),
+            covec: cov,
             pt: self.pt.flip(),
         }
     }
 
     pub fn energy(self: &Self) -> f64 {
-        - self.covec.0
+        - self.covec.explode().0
     }
 
     pub fn angular(self: &Self) -> f64 {
-        self.pt.coord.1 * self.covec.2 - self.pt.coord.2 * self.covec.1
+        let (_, x, y, _) = self.pt.coord.explode();
+        let (_, px, py, _) = self.covec.explode();
+        x * py - y * px
     }
 
     pub fn carter(self: &Self) -> f64 {
         // -2 Sigma ⟨k, p⟩⟨ℓ, p⟩/⟨k, l⟩ + r^2 g(p, p)
         let r = self.pt.radius;
-        let z = self.pt.coord.3;
+        let z = self.pt.coord.explode().3;
         let k = self.pt.incoming();
         let l = self.pt.outgoing();
-        let pk = quad_dot(self.covec, k);
-        let pl = quad_dot(self.covec, l);
+        let pk = self.covec.dot(k);
+        let pl = self.covec.dot(l);
         let kl = self.pt.incoming_outgoing_dot();
         let sigma = r*r + (SPIN*SPIN) * (z*z) / (r*r);
         r*r * self.modulus() - 2.0 * sigma * pk * pl / kl
@@ -450,13 +410,15 @@ impl Cotangent {
     pub fn dynamics(self: &Self) -> CotangentDelta {
         // dx = g(p, -)
         // dp = -.5 * ∂g/∂x (p, p)
+        let (_, x, y, z) = self.pt.coord.explode();
+        let (pt, px, py, pz) = self.covec.explode();
         let (dpx, dpy, dpz) = diff_inv_sq(
-            self.pt.coord.1, self.pt.coord.2, self.pt.coord.3,
+            x, y, z,
             self.pt.radius.is_sign_negative(),
-            self.covec.0, self.covec.1, self.covec.2, self.covec.3
+            pt, px, py, pz
         );
         CotangentDelta {
-            covec: (0.0, -0.5*dpx, -0.5*dpy, -0.5*dpz),
+            covec: Quad::new(0.0, -0.5*dpx, -0.5*dpy, -0.5*dpz),
             pt: self.dual().vec,
         }
     }
@@ -464,12 +426,7 @@ impl Cotangent {
     /// Applying the cotangent delta data (without rescaling)
     pub fn nudge(self: &Self, delta: CotangentDelta) -> Self {
         Cotangent {
-            covec: (
-                self.covec.0 + delta.covec.0,
-                self.covec.1 + delta.covec.1,
-                self.covec.2 + delta.covec.2,
-                self.covec.3 + delta.covec.3
-            ),
+            covec: self.covec + delta.covec,
             pt: self.pt.nudge(delta.pt),
         }
     }
@@ -481,15 +438,8 @@ mod tests {
     use crate::coordinates::kerr_schild::*;
 
     fn rand_pt() -> Pt {
-        let (mut t,mut x,mut y,mut z): Quad;
-        loop {
-            (t,x,y,z) = rand_quad();
-            if ((x*x + y*y).sqrt() - SPIN*SPIN).powi(2) + z*z >= 1e-6 {
-                break;
-            }
-        }
         Pt::new(
-            (t,x,y,z),
+            Quad::rand(),
             random_range(-5..5),
             random_bool(0.5),
             random_bool(0.5),
@@ -508,11 +458,11 @@ mod tests {
         for _ in 0..NUM {
             let pt = rand_pt();
             let vec = Tangent {
-                vec: rand_quad(),
+                vec: Quad::rand(),
                 pt: rand_pt(),
             };
             let covec = Cotangent {
-                covec: rand_quad(),
+                covec: Quad::rand(),
                 pt: rand_pt(),
             };
             pt_err += Pt::error(&pt, &pt.flip().flip());
@@ -538,11 +488,11 @@ mod tests {
         let mut ct_err = 0.0;
         for _ in 0..NUM {
             let vec = Tangent {
-                vec: rand_quad(),
+                vec: Quad::rand(),
                 pt: rand_pt(),
             };
             let covec = Cotangent {
-                covec: rand_quad(),
+                covec: Quad::rand(),
                 pt: rand_pt(),
             };
             tg_err += Tangent::error(&vec, &vec.dual().dual());
@@ -558,11 +508,11 @@ mod tests {
         let mut ct_err = 0.0;
         for _ in 0..NUM {
             let vec = Tangent {
-                vec: rand_quad(),
+                vec: Quad::rand(),
                 pt: rand_pt(),
             };
             let covec = Cotangent {
-                covec: rand_quad(),
+                covec: Quad::rand(),
                 pt: rand_pt(),
             };
             ct_err += Cotangent::error(&vec.flip().dual(), &vec.dual().flip());
@@ -578,11 +528,11 @@ mod tests {
         let mut ct_err = 0.0;
         for _ in 0..NUM {
             let vec = Tangent {
-                vec: rand_quad(),
+                vec: Quad::rand(),
                 pt: rand_pt(),
             };
             let covec = Cotangent {
-                covec: rand_quad(),
+                covec: Quad::rand(),
                 pt: rand_pt(),
             };
             tg_err += (vec.modulus() - vec.dual().modulus()).abs();
@@ -598,11 +548,11 @@ mod tests {
         let mut ct_err = 0.0;
         for _ in 0..NUM {
             let vec = Tangent {
-                vec: rand_quad(),
+                vec: Quad::rand(),
                 pt: rand_pt(),
             };
             let covec = Cotangent {
-                covec: rand_quad(),
+                covec: Quad::rand(),
                 pt: rand_pt(),
             };
             tg_err += (vec.modulus() - vec.flip().modulus()).abs();
@@ -648,7 +598,7 @@ mod tests {
         for _ in 0..NUM {
             let pt = rand_pt();
             err += (pt.incoming_outgoing_dot()
-                - quad_dot(pt.incoming(), pt.outgoing_dual()))
+                - pt.incoming().dot(pt.outgoing_dual()))
                 .abs();
         }
         assert!(err < ERR * NUM as f64, "{err}");
@@ -745,7 +695,7 @@ pub fn rk45(state: Cotangent) -> impl Iterator<Item = (f64, Cotangent)> {
         let r5 = k1.scale(25./216.) + k3.scale(1408./2565.) + k4.scale(2197./4104.) + k5.scale(-1./5.);
         let r6 = k1.scale(16./135.) + k3.scale(6656./12825.) + k4.scale(28561./56430.) + k5.scale(-9./50.) + k6.scale(2./55.);
 
-        let error = r5.error(&r6);
+        let error = r5.error(r6);
         eps *= (0.8 * f64::powf(RK_TOLERANCE / error, 1./5.))
             .max(0.2).min(2.0);
         if error >= RK_TOLERANCE {
