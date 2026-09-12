@@ -119,7 +119,8 @@ impl Pt {
         }
     }
 
-    pub fn radius(self: &Self) -> f64 {
+    #[inline]
+    pub fn radius(self: Self) -> f64 {
         self.radius
     }
 
@@ -132,7 +133,7 @@ impl Pt {
     }
 
     /// Returns the cosmological region
-    pub fn region(self: &Self) -> Region {
+    pub fn region(self: Self) -> Region {
         if self.radius <= R_INNER {
             (
                 if self.time_rev {self.base - 1} else {self.base},
@@ -149,7 +150,7 @@ impl Pt {
         }
     }
 
-    pub fn flip(self: &Self) -> Self {
+    pub fn flip(self: Self) -> Self {
         let (t0, x0, y0, z0) = self.coord.explode();
         let (t,x,y) = flip(
             t0, x0, y0, z0,
@@ -180,14 +181,14 @@ impl Pt {
     }
 
     #[inline]
-    pub fn discr(self: &Self) -> f64 {
+    pub fn discr(self: Self) -> f64 {
         let r = self.radius;
         r*r - 2.0*MASS*r + SPIN*SPIN
     }
 
     /// Nudges the coordinate in a direction. If it went through the ring,
     /// flip the sign of the radius.
-    pub fn nudge(self: &Self, delta: Quad) -> Self {
+    pub fn nudge(self: Self, delta: Quad) -> Self {
         let (t,x,y,z) = self.coord.explode();
         let (dt, dx, dy, dz) = delta.explode();
         let new_coord = self.coord + delta;
@@ -212,7 +213,7 @@ impl Pt {
     }
 
     #[inline]
-    pub fn incoming(self: &Self) -> Quad {
+    pub fn incoming(self: Self) -> Quad {
         let (_,x,y,z) = self.coord.explode();
         let r = self.radius;
         Quad::new(
@@ -224,7 +225,7 @@ impl Pt {
     }
 
     #[inline]
-    pub fn incoming_dual(self: &Self) -> Quad {
+    pub fn incoming_dual(self: Self) -> Quad {
         let (_,x,y,z) = self.coord.explode();
         let r = self.radius;
         Quad::new(
@@ -236,7 +237,7 @@ impl Pt {
     }
 
     #[inline]
-    pub fn outgoing(self: &Self) -> Quad {
+    pub fn outgoing(self: Self) -> Quad {
         let (_,x,y,z) = self.coord.explode();
         let r = self.radius;
         let delta = self.discr();
@@ -249,7 +250,7 @@ impl Pt {
     }
 
     #[inline]
-    pub fn outgoing_dual(self: &Self) -> Quad {
+    pub fn outgoing_dual(self: Self) -> Quad {
         let qk = self.incoming_outgoing_dot();
         let h = 2.0
             * ks_scalar(self.coord.explode().3, self.radius)
@@ -259,7 +260,7 @@ impl Pt {
     }
 
     #[inline]
-    pub fn incoming_outgoing_dot(self: &Self) -> f64 {
+    pub fn incoming_outgoing_dot(self: Self) -> f64 {
         let r = self.radius;
         let (_, x, y, _) = self.coord.explode();
         let delta = self.discr();
@@ -280,14 +281,14 @@ impl Tangent {
         (Pt::error(&this.pt, &other.pt) + this.vec.error(other.vec)) / 2.0
     }
 
-    pub fn modulus(self: &Self) -> f64 {
+    pub fn modulus(self: Self) -> f64 {
         let qk = self.vec.dot(self.pt.incoming_dual());
         let h = ks_scalar(self.pt.coord.explode().3, self.pt.radius);
         self.vec.dot(self.vec * Quad::ETA)
             + 2.0*h*(qk*qk)
     }
 
-    pub fn dual(self: &Self) -> Cotangent {
+    pub fn dual(self: Self) -> Cotangent {
         let q = self.vec;
         let k = self.pt.incoming_dual();
         let qk = q.dot(k);
@@ -299,7 +300,7 @@ impl Tangent {
         }
     }
 
-    pub fn flip(self: &Self) -> Self {
+    pub fn flip(self: Self) -> Self {
         let (t, x, y, z) = self.pt.coord.explode();
         let (dt, dx, dy, dz) = self.vec.explode();
         let (_, (dt1, dx1, dy1)) = flip_tangent(
@@ -355,13 +356,13 @@ impl Cotangent {
         (Pt::error(&this.pt, &other.pt) + this.covec.error(other.covec)) / 2.0
     }
 
-    pub fn modulus(self: &Self) -> f64 {
+    pub fn modulus(self: Self) -> f64 {
         let qk = self.covec.dot(self.pt.incoming());
         let h = ks_scalar(self.pt.coord.explode().3, self.pt.radius);
         self.covec.dot(self.covec * Quad::ETA) - 2.0*h*(qk*qk)
     }
 
-    pub fn dual(self: &Self) -> Tangent {
+    pub fn dual(self: Self) -> Tangent {
         let k = self.pt.incoming();
         let qk = self.covec.dot(self.pt.incoming());
         let h = 2.0 * ks_scalar(self.pt.coord.explode().3, self.pt.radius) * qk;
@@ -371,7 +372,7 @@ impl Cotangent {
         }
     }
 
-    pub fn flip(self: &Self) -> Self {
+    pub fn flip(self: Self) -> Self {
         let (t, x, y, z) = self.pt.coord.explode();
         let (dt, dx, dy, dz) = self.covec.explode();
         let (_, cov) = flip_cotangent(
@@ -384,17 +385,17 @@ impl Cotangent {
         }
     }
 
-    pub fn energy(self: &Self) -> f64 {
+    pub fn energy(self: Self) -> f64 {
         - self.covec.explode().0
     }
 
-    pub fn angular(self: &Self) -> f64 {
+    pub fn angular(self: Self) -> f64 {
         let (_, x, y, _) = self.pt.coord.explode();
         let (_, px, py, _) = self.covec.explode();
         x * py - y * px
     }
 
-    pub fn carter(self: &Self) -> f64 {
+    pub fn carter(self: Self) -> f64 {
         // -2 Sigma ⟨k, p⟩⟨ℓ, p⟩/⟨k, l⟩ + r^2 g(p, p)
         let r = self.pt.radius;
         let z = self.pt.coord.explode().3;
@@ -407,7 +408,7 @@ impl Cotangent {
         r*r * self.modulus() - 2.0 * sigma * pk * pl / kl
     }
 
-    pub fn dynamics(self: &Self) -> CotangentDelta {
+    pub fn dynamics(self: Self) -> CotangentDelta {
         // dx = g(p, -)
         // dp = -.5 * ∂g/∂x (p, p)
         let (_, x, y, z) = self.pt.coord.explode();
@@ -424,7 +425,7 @@ impl Cotangent {
     }
 
     /// Applying the cotangent delta data (without rescaling)
-    pub fn nudge(self: &Self, delta: CotangentDelta) -> Self {
+    pub fn nudge(self: Self, delta: CotangentDelta) -> Self {
         Cotangent {
             covec: self.covec + delta.covec,
             pt: self.pt.nudge(delta.pt),
