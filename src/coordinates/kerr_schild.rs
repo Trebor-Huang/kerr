@@ -1,17 +1,6 @@
 use crate::{constants::*, utils::*, coordinates::*};
 use std::autodiff::*;
 
-#[inline]
-fn radius(x: f64, y: f64, z: f64, rev: bool) -> f64 {
-    let d = x*x + y*y + z*z - SPIN*SPIN;
-    let result = f64::sqrt(0.5 * (d + f64::sqrt(d*d + 4.0 * (SPIN*SPIN) * (z*z))));
-    if rev {
-        - result
-    } else {
-        result
-    }
-}
-
 // TODO better numerical behavior
 #[autodiff_forward(_fflip, Dual, Dual, Dual, Dual, Const, Dual, Dual, Dual)]
 #[autodiff_reverse(_rflip, Active, Active, Active, Active, Const, Duplicated, Duplicated, Duplicated)]
@@ -20,15 +9,13 @@ fn _flip(
     t: &mut f64, x: &mut f64, y: &mut f64
 ) {
     let r0 = radius(x0, y0, z0, rev);
-    let δφ = if f64::abs(r0) < 1.0 {
-        2.0 * f64::atan2(SPIN, r0)
-            + SPIN / f64::sqrt(MASS*MASS - SPIN*SPIN) *
-            f64::ln(f64::abs((r0 - R_OUTER)/(r0 - R_INNER)))
-    } else {
-        2.0 * f64::atan2(SPIN, r0)
-            + SPIN / f64::sqrt(MASS*MASS - SPIN*SPIN) *
-            f64::ln(f64::abs((1.0 - R_OUTER/r0)/(1.0 - R_INNER/r0)))
-    };
+    let δφ = 2.0 * f64::atan2(SPIN, r0)
+        + SPIN / f64::sqrt(MASS*MASS - SPIN*SPIN) *
+        f64::ln(f64::abs(if f64::abs(r0) < 1.0 {
+            (r0 - R_OUTER)/(r0 - R_INNER)
+        } else {
+            (1.0 - R_OUTER/r0)/(1.0 - R_INNER/r0)
+        }));
     let δt = 2.0 * MASS / f64::sqrt(MASS*MASS - SPIN*SPIN) * (
         R_OUTER * f64::ln(f64::abs((r0 - R_OUTER)/(2.0 * MASS))) -
         R_INNER * f64::ln(f64::abs((r0 - R_INNER)/(2.0 * MASS)))
@@ -620,29 +607,29 @@ mod tests {
         assert!(l_err < ERR * NUM as f64);
     }
 
-    // #[test]
-    // fn rk45_conserved() {
-    //     let cov = Tangent {
-    //         vec: (1.0, 0.0, -0.45, 0.0),
-    //         pt: Pt::new(
-    //             (0.0, 0.0003, -0.0002, 5.0),
-    //             0, false, false,false
-    //         ),
-    //     }.dual();
-    //     for (i, (t, st)) in rk45(cov).enumerate() {
-    //         if t > 10000.0 || i > 1000_000 {
-    //             assert!((st.modulus() - cov.modulus()).abs() < 1e-10);
-    //             assert!((st.energy() - cov.energy()).abs() < 1e-10);
-    //             assert!((st.angular() - cov.angular()).abs() < 1e-10);
-    //             assert!((st.carter() - cov.carter()).abs() < 1e-10);
-    //             break;
-    //         }
-    //     }
-    // }
+    #[test]
+    fn rk45_conserved() {
+        let cov = Tangent {
+            vec: Quad::new(1.0, 0.0, -0.45, 0.0),
+            pt: Pt::new(
+                Quad::new(0.0, 0.0003, -0.0002, 5.0),
+                0, false, false, false
+            ),
+        }.dual();
+        for (i, (t, st)) in rk45(cov).enumerate() {
+            if t > 10000.0 || i > 1000_000 {
+                assert!((st.modulus() - cov.modulus()).abs() < 1e-12);
+                assert!((st.energy() - cov.energy()).abs() < 1e-12);
+                assert!((st.angular() - cov.angular()).abs() < 1e-12);
+                assert!((st.carter() - cov.carter()).abs() < 1e-10);
+                break;
+            }
+        }
+    }
 }
 
-/// Integrates the geodesics in Kerr–Schild coordinates specifically.
-/// The flipping mechanism
+/// Integrates the geodesics in Kerr–Schild coordinates specifically,
+/// using the flipping mechanism to select coordinate charts.
 pub fn rk45(state: Cotangent) -> impl Iterator<Item = (f64, Cotangent)> {
     // Assumes we are future-directed and timelike
     let mut state = state;

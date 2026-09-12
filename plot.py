@@ -22,7 +22,7 @@ for i, R in enumerate((R_OUTER, R_INNER)):
 
 traj = np.loadtxt("./traj.out", delimiter=",")
 
-DECIMATION = 1
+DECIMATION = 10
 I = traj[::DECIMATION,0]
 T = traj[::DECIMATION,1]
 X = traj[::DECIMATION,2]

@@ -1,7 +1,7 @@
 #[derive(Debug, Clone, Copy)]
 pub struct Quad(f64, f64, f64, f64);
 
-// TODO make this a proper type, use wide
+// TODO use wide
 
 impl std::ops::Add for Quad {
     type Output = Quad;

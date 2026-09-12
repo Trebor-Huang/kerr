@@ -14,10 +14,17 @@ fn main() {
     let mut stderr = stderr();
     let lock = stdout().lock();
     let mut stdout = BufWriter::new(lock);
+    // let cov = Tangent {
+    //     vec: Quad::new(1.3, -1.0, -0.2, 0.2),
+    //     pt: Pt::new(
+    //         Quad::new(0.0, 0.0, 1.2, 0.0),
+    //         0, false, false, false
+    //     ),
+    // }.dual();
     let cov = Tangent {
-        vec: Quad::new(1.3, -1.0, -0.2, 0.2),
+        vec: Quad::new(1.0, 0.0, -0.45, 0.0),
         pt: Pt::new(
-            Quad::new(0.0, 0.0, 1.2, 0.0),
+            Quad::new(0.0, 0.0003, -0.0002, 5.0),
             0, false, false, false
         ),
     }.dual();
@@ -35,7 +42,7 @@ fn main() {
                 st.modulus(), st.energy(), st.angular(), st.carter()
             ).unwrap();
         }
-        if t > 15.0 || i > 100000 { break; }
+        if t > 2000.0 || i > 1000000 { break; }
     }
     stdout.flush().unwrap();
     writeln!(stderr, "Elapsed: {:?}", time.elapsed()).unwrap();
