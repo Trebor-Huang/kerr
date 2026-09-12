@@ -1,4 +1,3 @@
-#![feature(autodiff)]
 use crate::{constants::*, utils::*, coordinates::*};
 use std::autodiff::*;
 
@@ -214,7 +213,7 @@ impl Pt {
 
     #[inline]
     pub fn incoming(self: &Self) -> Quad {
-        let (t,x,y,z) = self.coord;
+        let (_,x,y,z) = self.coord;
         let r = self.radius;
         (
             -1.0,
@@ -226,7 +225,7 @@ impl Pt {
 
     #[inline]
     pub fn incoming_dual(self: &Self) -> Quad {
-        let (t,x,y,z) = self.coord;
+        let (_,x,y,z) = self.coord;
         let r = self.radius;
         (
             1.0,
@@ -238,7 +237,7 @@ impl Pt {
 
     #[inline]
     pub fn outgoing(self: &Self) -> Quad {
-        let (t,x,y,z) = self.coord;
+        let (_,x,y,z) = self.coord;
         let r = self.radius;
         let delta = self.discr();
         (
@@ -479,7 +478,6 @@ impl Cotangent {
 #[cfg(test)]
 mod tests {
     use rand::*;
-    use crate::utils::*;
     use crate::coordinates::kerr_schild::*;
 
     fn rand_pt() -> Pt {

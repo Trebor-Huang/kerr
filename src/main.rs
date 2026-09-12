@@ -6,8 +6,6 @@ mod utils;
 mod coordinates;
 
 use std::io::*;
-use utils::*;
-use constants::*;
 
 fn main() {
     use coordinates::kerr_schild::*;
