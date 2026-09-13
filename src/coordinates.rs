@@ -32,7 +32,7 @@ pub fn discr(r: f64) -> f64 {
 #[inline]
 /// The function R(r) appearing in the first order equations of motion.
 /// Must be non-negative at any point on the geodesic.
-pub fn motionR(r: f64, modulus: f64, energy: f64, angular: f64, carter: f64) -> f64 {
+pub fn motion_r(r: f64, modulus: f64, energy: f64, angular: f64, carter: f64) -> f64 {
     ((r*r + SPIN*SPIN) * energy - SPIN * angular).powi(2)
     - discr(r) * (carter + (angular - SPIN * energy).powi(2) - r*r * modulus)
 }

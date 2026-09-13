@@ -427,32 +427,27 @@ impl Cotangent {
 
     /// If this is a timelike vector, whether it is future directed.
     pub fn future_directed(self: Self) -> bool {
-        // TODO this is wrong for lazy geodesics? why?
+        // todo also: (r^2 + a^2) E - a L > √R(r)
         self.covec.dot(self.pt.incoming()).is_sign_positive()
             ^ self.pt.time_rev
     }
 
     /// Flips the coordinates if it is a good time.
     fn adjust_coordinates(self: Self) -> Self {
+        // TODO clean this up
         let other = self.flip();
-        if self.covec.abs() > other.covec.abs() {
-            other
-        } else {
-            self
-        }
-        /*
         // If we are in the inner horizon and future directed
         // or if we are in the outer horizon and past directed
         // we switch immediately
         if self.pt.radius <= R_INNER {
-            if self.pt.time_rev {
+            if !self.pt.time_rev && self.covec.abs() > other.covec.abs() {
                 println!("Inside inner horizon, reversing time.");
                 self.flip()
             } else {
                 self
             }
         } else if self.pt.radius >= R_OUTER {
-            if self.pt.time_rev {
+            if self.pt.time_rev && self.covec.abs() > other.covec.abs() {
                 println!("Outside outer horizon, restoring time.");
                 self.flip()
             } else {
@@ -478,7 +473,7 @@ impl Cotangent {
             let good
                 = SPIN.is_sign_positive()
                 ^ rotor.is_sign_positive()
-                ^ self.pt.time_rev;
+                ^ !self.pt.parallel;
             if good {
                 println!("Flipping in the middle region.");
                 self.flip()
@@ -486,8 +481,49 @@ impl Cotangent {
                 self
             }
         }
-        */
     }
+}
+
+/// Integrates the geodesics in Kerr–Schild coordinates specifically,
+/// using the flipping mechanism to select coordinate charts.
+pub fn rk45(state: Cotangent) -> impl Iterator<Item = (f64, Cotangent)> {
+    // Assumes we are future-directed and timelike
+    let mut state = state;
+    let mut eps = 1e-3;
+    let mut cur = 0.0;
+    std::iter::from_fn(move || loop {
+        // TODO calculate this less often
+        state = state.adjust_coordinates();
+
+        let k1 = state.dynamics().scale(eps);
+        let k2 = state.nudge(k1.scale(1./4.)).dynamics().scale(eps);
+        let k3 = state.nudge(k1.scale(3./32.) + k2.scale(9./32.)).dynamics().scale(eps);
+        let k4 = state.nudge(k1.scale(1932./2197.) + k2.scale(-7200./2197.) + k3.scale(7296./2197.)).dynamics().scale(eps);
+        let k5 = state.nudge(k1.scale(439./216.) + k2.scale(-8.) + k3.scale(3680./513.) + k4.scale(-845./4104.)).dynamics().scale(eps);
+        let k6 = state.nudge(k1.scale(-8./27.) + k2.scale(2.) + k3.scale(-3544./2565.) + k4.scale(1859./4104.) + k5.scale(-11./40.)).dynamics().scale(eps);
+
+        let r5 = k1.scale(25./216.) + k3.scale(1408./2565.) + k4.scale(2197./4104.) + k5.scale(-1./5.);
+        let r6 = k1.scale(16./135.) + k3.scale(6656./12825.) + k4.scale(28561./56430.) + k5.scale(-9./50.) + k6.scale(2./55.);
+
+        let error = r5.error(r6);
+        eps *= (0.9 * f64::powf(RK_TOLERANCE / error, 1./5.))
+            .max(0.5).min(2.0);
+        if !(error <= RK_TOLERANCE) {
+            if eps < 1e-12 {
+                // panic!("Step size is too small: {eps}")
+                return None
+            }
+            if !error.is_finite() {
+                // panic!("Error has blown up: {error}")
+                return None
+            }
+            continue;
+        }
+        // println!("{eps}");
+        cur += eps;
+        state = state.nudge(r6);
+        return Some((cur, state));
+    })
 }
 
 #[cfg(test)]
@@ -686,44 +722,35 @@ mod tests {
             }
         }
     }
-}
 
-/// Integrates the geodesics in Kerr–Schild coordinates specifically,
-/// using the flipping mechanism to select coordinate charts.
-pub fn rk45(state: Cotangent) -> impl Iterator<Item = (f64, Cotangent)> {
-    // Assumes we are future-directed and timelike
-    let mut state = state;
-    let mut eps = 1e-3;
-    let mut cur = 0.0;
-    std::iter::from_fn(move || loop {
-        // TODO calculate this less often
-        state = state.adjust_coordinates();
-
-        let k1 = state.dynamics().scale(eps);
-        let k2 = state.nudge(k1.scale(1./4.)).dynamics().scale(eps);
-        let k3 = state.nudge(k1.scale(3./32.) + k2.scale(9./32.)).dynamics().scale(eps);
-        let k4 = state.nudge(k1.scale(1932./2197.) + k2.scale(-7200./2197.) + k3.scale(7296./2197.)).dynamics().scale(eps);
-        let k5 = state.nudge(k1.scale(439./216.) + k2.scale(-8.) + k3.scale(3680./513.) + k4.scale(-845./4104.)).dynamics().scale(eps);
-        let k6 = state.nudge(k1.scale(-8./27.) + k2.scale(2.) + k3.scale(-3544./2565.) + k4.scale(1859./4104.) + k5.scale(-11./40.)).dynamics().scale(eps);
-
-        let r5 = k1.scale(25./216.) + k3.scale(1408./2565.) + k4.scale(2197./4104.) + k5.scale(-1./5.);
-        let r6 = k1.scale(16./135.) + k3.scale(6656./12825.) + k4.scale(28561./56430.) + k5.scale(-9./50.) + k6.scale(2./55.);
-
-        let error = r5.error(r6);
-        eps *= (0.9 * f64::powf(RK_TOLERANCE / error, 1./5.))
-            .max(0.5).min(2.0);
-        if !(error <= RK_TOLERANCE) {
-            if eps < 1e-12 {
-                panic!("Step size is too small: {eps}")
+    #[test]
+    fn rk45_flipping() {
+        for _ in 0..NUM {
+            let pt = Pt::rand();
+            let cov = loop {
+                let st = Cotangent {
+                    covec: Quad::rand(),
+                    pt,
+                };
+                if st.future_directed() && st.modulus() < -0.01 {
+                    break st;
+                }
+            };
+            let mut good = false;
+            for (i, (t, st)) in rk45(cov).enumerate() {
+                assert!(st.future_directed() == cov.future_directed());
+                if t > 1000.0 {
+                    good = true;
+                    break;  // Good enough
+                }
+                if st.pt.radius().abs() < 1e-5 || st.pt.radius().abs() > 50.0 {
+                    good = true;
+                    break;  // Probably escaped or close to singularity
+                }
             }
-            if !error.is_finite() {
-                panic!("Error has blown up: {error}")
+            if !good {
+                panic!("Geodesic hit coordinate singularity, starting condition is {cov:?}")
             }
-            continue;
         }
-        // println!("{eps}");
-        cur += eps;
-        state = state.nudge(r6);
-        return Some((cur, state));
-    })
+    }
 }
