@@ -112,11 +112,23 @@ impl Pt {
     }
 
     #[cfg(test)]
-    pub fn error(self: &Pt, other: &Pt) -> f64 {
+    pub fn error(self: Pt, other: Pt) -> f64 {
         assert_eq!(self.base, other.base);
         assert_eq!(self.parallel, other.parallel);
         assert_eq!(self.time_rev, other.time_rev);
         self.coord.error(other.coord)
+    }
+
+    #[cfg(test)]
+    pub fn rand() -> Pt {
+        use rand::*;
+        Pt::new(
+            Quad::rand(),
+            random_range(-5..5),
+            random_bool(0.5),
+            random_bool(0.5),
+            random_bool(0.5)
+        )
     }
 
     /// Returns the cosmological region
@@ -265,7 +277,7 @@ pub struct Tangent {
 impl Tangent {
     #[cfg(test)]
     pub fn error(this: &Tangent, other: &Tangent) -> f64 {
-        (Pt::error(&this.pt, &other.pt) + this.vec.error(other.vec)) / 2.0
+        (this.pt.error(other.pt) + this.vec.error(other.vec)) / 2.0
     }
 
     pub fn modulus(self: Self) -> f64 {
@@ -338,9 +350,9 @@ impl CotangentDelta {
 }
 
 impl Cotangent {
-    #[cfg(test)]
+    #[cfg(test)]  // TODO make consistent
     pub fn error(this: &Cotangent, other: &Cotangent) -> f64 {
-        (Pt::error(&this.pt, &other.pt) + this.covec.error(other.covec)) / 2.0
+        (this.pt.error(other.pt) + this.covec.error(other.covec)) / 2.0
     }
 
     pub fn modulus(self: Self) -> f64 {
@@ -425,16 +437,6 @@ mod tests {
     use rand::*;
     use crate::coordinates::kerr_schild::*;
 
-    fn rand_pt() -> Pt {
-        Pt::new(
-            Quad::rand(),
-            random_range(-5..5),
-            random_bool(0.5),
-            random_bool(0.5),
-            random_bool(0.5)
-        )
-    }
-
     const NUM: i32 = 100;
     const ERR: f64 = 1e-13;
 
@@ -444,16 +446,16 @@ mod tests {
         let mut tg_err = 0.0;
         let mut ct_err = 0.0;
         for _ in 0..NUM {
-            let pt = rand_pt();
+            let pt = Pt::rand();
             let vec = Tangent {
                 vec: Quad::rand(),
-                pt: rand_pt(),
+                pt: Pt::rand(),
             };
             let covec = Cotangent {
                 covec: Quad::rand(),
-                pt: rand_pt(),
+                pt: Pt::rand(),
             };
-            pt_err += Pt::error(&pt, &pt.flip().flip());
+            pt_err += pt.error(pt.flip().flip());
             tg_err += Tangent::error(&vec, &vec.flip().flip());
             ct_err += Cotangent::error(&covec, &covec.flip().flip());
         }
@@ -465,7 +467,7 @@ mod tests {
     #[test]
     fn flip_region() {
         for _ in 0..NUM {
-            let pt = rand_pt();
+            let pt = Pt::rand();
             assert_eq!(pt.region(), pt.flip().region());
         }
     }
@@ -477,11 +479,11 @@ mod tests {
         for _ in 0..NUM {
             let vec = Tangent {
                 vec: Quad::rand(),
-                pt: rand_pt(),
+                pt: Pt::rand(),
             };
             let covec = Cotangent {
                 covec: Quad::rand(),
-                pt: rand_pt(),
+                pt: Pt::rand(),
             };
             tg_err += Tangent::error(&vec, &vec.dual().dual());
             ct_err += Cotangent::error(&covec, &covec.dual().dual());
@@ -497,11 +499,11 @@ mod tests {
         for _ in 0..NUM {
             let vec = Tangent {
                 vec: Quad::rand(),
-                pt: rand_pt(),
+                pt: Pt::rand(),
             };
             let covec = Cotangent {
                 covec: Quad::rand(),
-                pt: rand_pt(),
+                pt: Pt::rand(),
             };
             ct_err += Cotangent::error(&vec.flip().dual(), &vec.dual().flip());
             tg_err += Tangent::error(&covec.flip().dual(), &covec.dual().flip());
@@ -517,11 +519,11 @@ mod tests {
         for _ in 0..NUM {
             let vec = Tangent {
                 vec: Quad::rand(),
-                pt: rand_pt(),
+                pt: Pt::rand(),
             };
             let covec = Cotangent {
                 covec: Quad::rand(),
-                pt: rand_pt(),
+                pt: Pt::rand(),
             };
             tg_err += (vec.modulus() - vec.dual().modulus()).abs();
             ct_err += (covec.modulus() - covec.dual().modulus()).abs();
@@ -537,11 +539,11 @@ mod tests {
         for _ in 0..NUM {
             let vec = Tangent {
                 vec: Quad::rand(),
-                pt: rand_pt(),
+                pt: Pt::rand(),
             };
             let covec = Cotangent {
                 covec: Quad::rand(),
-                pt: rand_pt(),
+                pt: Pt::rand(),
             };
             tg_err += (vec.modulus() - vec.flip().modulus()).abs();
             ct_err += (covec.modulus() - covec.flip().modulus()).abs();
@@ -555,7 +557,7 @@ mod tests {
         let mut k_err = 0.0;
         let mut l_err = 0.0;
         for _ in 0..NUM {
-            let pt = rand_pt();
+            let pt = Pt::rand();
             let k = Tangent { vec: pt.incoming(), pt };
             let cok = Cotangent { covec: pt.incoming_dual(), pt };
             k_err += Cotangent::error(&k.dual(), &cok);
@@ -571,7 +573,7 @@ mod tests {
     fn principal_null_flip() {
         let mut err = 0.0;
         for _ in 0..NUM {
-            let pt = rand_pt();
+            let pt = Pt::rand();
             let pt1 = pt.flip();
             let k = Tangent { vec: pt.incoming(), pt };
             let l = Tangent { vec: pt1.outgoing(), pt: pt1 };
@@ -584,7 +586,7 @@ mod tests {
     fn principal_dot() {
         let mut err = 0.0;
         for _ in 0..NUM {
-            let pt = rand_pt();
+            let pt = Pt::rand();
             err += (pt.incoming_outgoing_dot()
                 - pt.incoming().dot(pt.outgoing_dual()))
                 .abs();
@@ -597,7 +599,7 @@ mod tests {
         let mut k_err = 0.0;
         let mut l_err = 0.0;
         for _ in 0..NUM {
-            let pt = rand_pt();
+            let pt = Pt::rand();
             let k = Tangent { vec: pt.incoming(), pt };
             k_err += k.modulus().abs();
             let l = Tangent { vec: pt.outgoing(), pt };
