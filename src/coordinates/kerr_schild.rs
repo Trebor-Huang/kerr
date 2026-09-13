@@ -637,41 +637,42 @@ pub fn rk45(state: Cotangent) -> impl Iterator<Item = (f64, Cotangent)> {
     let mut state = state;
     let mut eps = 1e-3;
     let mut cur = 0.0;
-    let mut flipped = false;
     std::iter::from_fn(move || loop {
         // If we are in the inner horizon and future directed
         // or if we are in the outer horizon and past directed
         // we switch immediately
         if eps < 1e-3 {  // Only consider switching when we are slowing down
-        if state.pt.radius <= R_INNER {
-            if !state.pt.time_rev {
-                flipped = !flipped;
-                state = state.flip();
-            }
-        } else if state.pt.radius >= R_OUTER {
-            if state.pt.time_rev {
-                flipped = !flipped;
-                state = state.flip();
-            }
-        } else {
-            /* Otherwise, switching happens in between the two horizons
-            From geodesics equations we know the term that blows up is
-                a/(Delta, negative) * (2m r E - aL)
-            So we want to check if  a * (2 m r_horizon E - a L)  is positive
-            Flip otherwise.
+            if state.pt.radius <= R_INNER {
+                if !state.pt.time_rev {
+                    state = state.flip();
+                }
+            } else if state.pt.radius >= R_OUTER {
+                if state.pt.time_rev {
+                    state = state.flip();
+                }
+            } else {
+                /* Otherwise, switching happens in between the two horizons
+                From geodesics equations we know the term that blows up is
+                    a/(Delta, negative) * (2m r E - aL)
+                So we want to check if  a * (2 m r_horizon E - a L)  is positive
+                Flip otherwise.
 
-            (This is the same as dotting with horizon generating vector fields)
-            TODO figure out "hovering" geodesics
-            */
-            let should_flip = SPIN.is_sign_positive() ^
-                (2.0*MASS*(if state.pt.time_rev {R_OUTER} else {R_INNER})*state.energy()
-                - SPIN*state.angular()).is_sign_positive() ^
-                state.pt.time_rev;
-            if should_flip {
-                flipped = !flipped;
-                state = state.flip();
+                (This is the same as dotting with horizon generating vector fields)
+                TODO figure out "hovering" geodesics
+                */
+                // TODO should this be calculated every time?
+                // the energy and angular momentum could in principle drift
+                // maybe the integrator should also just eject when they drift
+                let rotor = 2.0 * MASS
+                    * (if state.pt.time_rev {R_OUTER} else {R_INNER})
+                    * state.energy() - SPIN*state.angular();
+                let should_flip = SPIN.is_sign_positive()
+                    ^ rotor.is_sign_positive()
+                    ^ state.pt.time_rev;
+                if should_flip {
+                    state = state.flip();
+                }
             }
-        }
         }
 
 
@@ -697,7 +698,6 @@ pub fn rk45(state: Cotangent) -> impl Iterator<Item = (f64, Cotangent)> {
         // println!("{eps}");
         cur += eps;
         state = state.nudge(r6);
-        // TODO output boyer lindquist coordinates
-        return Some((cur, if flipped { state.flip() } else { state }));
+        return Some((cur, state));
     })
 }

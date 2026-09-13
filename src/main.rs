@@ -10,6 +10,7 @@ use crate::utils::*;
 
 fn main() {
     use coordinates::kerr_schild::*;
+    use coordinates::boyer_lindquist;
 
     let mut stderr = stderr();
     let lock = stdout().lock();
@@ -34,15 +35,15 @@ fn main() {
     }
     let time = std::time::SystemTime::now();
     for (i, (t, st)) in rk45(cov).enumerate() {
-        let (_, x, y, z) = st.pt.coord.explode();
-        // writeln!(stdout, "{i},{:},{:},{:},{:},{:}", t, x, y, z, st.pt.radius()).unwrap();
-        if i % 10000 == 0 {
+        let (_, x, y, z) = boyer_lindquist::Pt::from_kerr_schild(st.pt).coord.explode();
+        writeln!(stdout, "{i},{:},{:},{:},{:},{:}", t, x, y, z, st.pt.radius()).unwrap();
+        if i % 1000 == 0 {
             writeln!(stderr, "#{i:>5}  t={:>5.2}  m={:>10.7}  E={:>10.7}  L={:>10.7}  Q={:>10.7}",
                 t,
                 st.modulus(), st.energy(), st.angular(), st.carter()
             ).unwrap();
         }
-        if t > 10000.0 || i > 1000000 { break; }
+        if t > 1000.0 || i > 1000000 { break; }
     }
     stdout.flush().unwrap();
     writeln!(stderr, "Elapsed: {:?}", time.elapsed()).unwrap();

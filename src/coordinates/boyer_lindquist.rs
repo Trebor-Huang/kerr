@@ -8,10 +8,10 @@ use crate::{coordinates::*, utils::*, constants::*};
 /// takes us to the parallel universe, while between the horizons
 /// shifting flips the timelike orientation.
 pub struct Pt {
-    coord: Quad,
-    base: i32,
-    radius_rev: bool,
-    shift: bool,
+    pub coord: Quad,
+    pub base: i32,
+    pub radius_rev: bool,
+    pub shift: bool,
 }
 
 impl Pt {
