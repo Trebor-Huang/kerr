@@ -1,4 +1,4 @@
-use crate::{coordinates::*, utils::*, constants::*};
+use crate::{coordinates::*, utils::*};
 
 #[derive(Debug, Clone, Copy)]
 /// A point is given by the coordinates, the number of universes
@@ -114,7 +114,7 @@ mod test {
 
     #[test]
     fn from_kerr_schild_region() {
-        for i in 0..NUM {
+        for _ in 0..NUM {
             let pt = kerr_schild::Pt::rand();
             assert_eq!(pt.region(), Pt::from_kerr_schild(pt).region())
         }
@@ -123,7 +123,7 @@ mod test {
     #[test]
     fn from_kerr_schild_flip() {
         let mut err = 0.0;
-        for i in 0..NUM {
+        for _ in 0..NUM {
             let pt = kerr_schild::Pt::rand();
             let bl1 = Pt::from_kerr_schild(pt);
             let bl2 = Pt::from_kerr_schild(pt.flip());

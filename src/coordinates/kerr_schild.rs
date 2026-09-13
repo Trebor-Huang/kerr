@@ -179,12 +179,6 @@ impl Pt {
         }
     }
 
-    #[inline]
-    pub fn discr(self: Self) -> f64 {
-        let r = self.radius;
-        r*r - 2.0*MASS*r + SPIN*SPIN
-    }
-
     /// Nudges the coordinate in a direction. If it went through the ring,
     /// flip the sign of the radius.
     pub fn nudge(self: Self, delta: Quad) -> Self {
@@ -239,7 +233,7 @@ impl Pt {
     pub fn outgoing(self: Self) -> Quad {
         let (_,x,y,z) = self.coord.explode();
         let r = self.radius;
-        let delta = self.discr();
+        let delta = discr(r);
         Quad::new(
             1.0 + (4.0 * MASS * r)/delta,
             (r*x + SPIN*y)/(r*r + SPIN*SPIN) - (2.0 * SPIN * y)/delta,
@@ -262,7 +256,7 @@ impl Pt {
     pub fn incoming_outgoing_dot(self: Self) -> f64 {
         let r = self.radius;
         let (_, x, y, _) = self.coord.explode();
-        let delta = self.discr();
+        let delta = discr(r);
         let ra = r*r + SPIN*SPIN;
         2.0 + 4.0 * MASS * r / delta - 2.0 * (SPIN*SPIN) * (x*x + y*y)/(delta * ra)
     }
@@ -477,6 +471,7 @@ impl Cotangent {
             // the energy and angular momentum could in principle drift
             // maybe the integrator should also just eject when they drift
             // we might want to do accelerating particles though
+            // maybe not, and instead we do segmented geodesics
             let rotor = 2.0 * MASS
                 * (if self.pt.time_rev {R_OUTER} else {R_INNER})
                 * self.energy() - SPIN*self.angular();
@@ -701,6 +696,7 @@ pub fn rk45(state: Cotangent) -> impl Iterator<Item = (f64, Cotangent)> {
     let mut eps = 1e-3;
     let mut cur = 0.0;
     std::iter::from_fn(move || loop {
+        // TODO calculate this less often
         state = state.adjust_coordinates();
 
         let k1 = state.dynamics().scale(eps);
