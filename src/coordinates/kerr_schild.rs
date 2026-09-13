@@ -430,6 +430,69 @@ impl Cotangent {
             pt: self.pt.nudge(delta.pt),
         }
     }
+
+    /// If this is a timelike vector, whether it is future directed.
+    pub fn future_directed(self: Self) -> bool {
+        // TODO this is wrong for lazy geodesics? why?
+        self.covec.dot(self.pt.incoming()).is_sign_positive()
+            ^ self.pt.time_rev
+    }
+
+    /// Flips the coordinates if it is a good time.
+    fn adjust_coordinates(self: Self) -> Self {
+        let other = self.flip();
+        if self.covec.abs() > other.covec.abs() {
+            other
+        } else {
+            self
+        }
+        /*
+        // If we are in the inner horizon and future directed
+        // or if we are in the outer horizon and past directed
+        // we switch immediately
+        if self.pt.radius <= R_INNER {
+            if self.pt.time_rev {
+                println!("Inside inner horizon, reversing time.");
+                self.flip()
+            } else {
+                self
+            }
+        } else if self.pt.radius >= R_OUTER {
+            if self.pt.time_rev {
+                println!("Outside outer horizon, restoring time.");
+                self.flip()
+            } else {
+                self
+            }
+        } else {
+            /* Otherwise, switching happens in between the two horizons
+            From geodesics equations we know the term that blows up is
+                a/(Delta, negative) * (2m r E - aL)
+            So we want to check if  a * (2 m r_horizon E - a L)  is positive
+
+            (This is the same as dotting with horizon generating vector fields)
+            TODO figure out "hovering" geodesics
+            */
+            // TODO should this be calculated every time?
+            // the energy and angular momentum could in principle drift
+            // maybe the integrator should also just eject when they drift
+            // we might want to do accelerating particles though
+            let rotor = 2.0 * MASS
+                * (if self.pt.time_rev {R_OUTER} else {R_INNER})
+                * self.energy() - SPIN*self.angular();
+            let good
+                = SPIN.is_sign_positive()
+                ^ rotor.is_sign_positive()
+                ^ self.pt.time_rev;
+            if good {
+                println!("Flipping in the middle region.");
+                self.flip()
+            } else {
+                self
+            }
+        }
+        */
+    }
 }
 
 #[cfg(test)]
@@ -638,43 +701,7 @@ pub fn rk45(state: Cotangent) -> impl Iterator<Item = (f64, Cotangent)> {
     let mut eps = 1e-3;
     let mut cur = 0.0;
     std::iter::from_fn(move || loop {
-        // If we are in the inner horizon and future directed
-        // or if we are in the outer horizon and past directed
-        // we switch immediately
-        if eps < 1e-3 {  // Only consider switching when we are slowing down
-            if state.pt.radius <= R_INNER {
-                if !state.pt.time_rev {
-                    state = state.flip();
-                }
-            } else if state.pt.radius >= R_OUTER {
-                if state.pt.time_rev {
-                    state = state.flip();
-                }
-            } else {
-                /* Otherwise, switching happens in between the two horizons
-                From geodesics equations we know the term that blows up is
-                    a/(Delta, negative) * (2m r E - aL)
-                So we want to check if  a * (2 m r_horizon E - a L)  is positive
-                Flip otherwise.
-
-                (This is the same as dotting with horizon generating vector fields)
-                TODO figure out "hovering" geodesics
-                */
-                // TODO should this be calculated every time?
-                // the energy and angular momentum could in principle drift
-                // maybe the integrator should also just eject when they drift
-                let rotor = 2.0 * MASS
-                    * (if state.pt.time_rev {R_OUTER} else {R_INNER})
-                    * state.energy() - SPIN*state.angular();
-                let should_flip = SPIN.is_sign_positive()
-                    ^ rotor.is_sign_positive()
-                    ^ state.pt.time_rev;
-                if should_flip {
-                    state = state.flip();
-                }
-            }
-        }
-
+        state = state.adjust_coordinates();
 
         let k1 = state.dynamics().scale(eps);
         let k2 = state.nudge(k1.scale(1./4.)).dynamics().scale(eps);
@@ -687,11 +714,14 @@ pub fn rk45(state: Cotangent) -> impl Iterator<Item = (f64, Cotangent)> {
         let r6 = k1.scale(16./135.) + k3.scale(6656./12825.) + k4.scale(28561./56430.) + k5.scale(-9./50.) + k6.scale(2./55.);
 
         let error = r5.error(r6);
-        eps *= (0.8 * f64::powf(RK_TOLERANCE / error, 1./5.))
-            .max(0.2).min(2.0);
-        if error >= RK_TOLERANCE {
+        eps *= (0.9 * f64::powf(RK_TOLERANCE / error, 1./5.))
+            .max(0.5).min(2.0);
+        if !(error <= RK_TOLERANCE) {
             if eps < 1e-12 {
                 panic!("Step size is too small: {eps}")
+            }
+            if !error.is_finite() {
+                panic!("Error has blown up: {error}")
             }
             continue;
         }

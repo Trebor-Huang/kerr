@@ -74,6 +74,14 @@ impl Quad {
     }
 
     #[inline]
+    pub fn abs(self: Quad) -> f64 {
+        self.0.abs()
+            .max(self.1.abs())
+            .max(self.2.abs())
+            .max(self.3.abs())
+    }
+
+    #[inline]
     pub fn error(self: Quad, other: Quad) -> f64 {
         ((self.0 - other.0).abs()
         + (self.1 - other.1).abs()
