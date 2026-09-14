@@ -11,7 +11,7 @@ fn _flip(
     let r0 = radius(x0, y0, z0, rev);
     let δφ = 2.0 * f64::atan2(SPIN, r0)
         + SPIN / f64::sqrt(MASS*MASS - SPIN*SPIN) *
-        f64::ln(f64::abs(if f64::abs(r0) < 1.0 {
+        f64::ln(f64::abs(if f64::abs(r0) < MASS {
             (r0 - R_OUTER)/(r0 - R_INNER)
         } else {
             (1.0 - R_OUTER/r0)/(1.0 - R_INNER/r0)
@@ -451,6 +451,8 @@ pub fn rk45(state: Cotangent) -> impl Iterator<Item = (f64, Cotangent)> {
     let mut eps = 1e-3;
     let mut cur = 0.0;
     std::iter::from_fn(move || loop {
+        // TODO bail if conserved quantities drift too much
+
         // TODO calculate this less often
         let (_, x, y, z) = state.pt.coord.explode();
         let (_, dx, dy, dz) = state.dual().vec.explode();

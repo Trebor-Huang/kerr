@@ -58,7 +58,7 @@ impl Pt {
         let r0 = radius(x0, y0, z0, pt.radius().is_sign_negative());
         let δφ = f64::atan2(SPIN, r0)
             + 0.5 * SPIN / f64::sqrt(MASS*MASS - SPIN*SPIN) *
-            f64::ln(f64::abs(if f64::abs(r0) < 1.0 {
+            f64::ln(f64::abs(if f64::abs(r0) < MASS {
                 (r0 - R_OUTER)/(r0 - R_INNER)
             } else {
                 (1.0 - R_OUTER/r0)/(1.0 - R_INNER/r0)
@@ -68,7 +68,7 @@ impl Pt {
             R_INNER * f64::ln(f64::abs((r0 - R_INNER)/(2.0 * MASS)))
         );
         let cos = f64::cos(δφ);
-        let sin = f64::sin(-δφ);
+        let sin = f64::sin(δφ);
         /*  A.Inner
          P.S.      U.S.
             A.Outer
@@ -83,9 +83,9 @@ impl Pt {
         // of AfterInner and AfterOuter.
         let flipped = pt.time_rev ^ pt.parallel;
         let t = if flipped {δt - t0} else {t0 - δt};
-        let x = cos * x0 - sin * y0;
-        let y = sin * x0 + cos * y0;
-        let y = if flipped {-y} else {y}; // TODO should I flip y or y0
+        let x = cos * x0 + sin * y0;
+        let y = sin * x0 - cos * y0;
+        let y = if flipped {y} else {-y};
         let base = if r0 < R_OUTER && pt.time_rev {
             pt.base - 1
         } else {
