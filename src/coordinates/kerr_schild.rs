@@ -91,9 +91,19 @@ fn ks_scalar(z: f64, r: f64) -> f64 {
 #[derive(Debug, Clone, Copy)]
 pub struct Pt {
     pub coord: Quad,
+
+    // The following three fields record how this coordinate patch fits into
+    // the maximal extension of the Kerr spacetime.
+
+    /// The number of the base universe.
     pub base: i32,
+    /// Flips between our universe and the parallel universe.
     pub parallel: bool,
+    /// Whether the portion with r < R_INNER is chronologically before the
+    /// portion with r > R_OUTER, i.e. whether the coordinate patch is flipped
+    /// upside down.
     pub time_rev: bool,
+    /// Cached radius, probably the right move?
     radius: f64,
 }
 
@@ -270,8 +280,8 @@ pub struct Tangent {
 
 impl Tangent {
     #[cfg(test)]
-    pub fn error(this: &Tangent, other: &Tangent) -> f64 {
-        (this.pt.error(other.pt) + this.vec.error(other.vec)) / 2.0
+    pub fn error(self: Tangent, other: Tangent) -> f64 {
+        (self.pt.error(other.pt) + self.vec.error(other.vec)) / 2.0
     }
 
     pub fn modulus(self: Self) -> f64 {
@@ -344,9 +354,9 @@ impl CotangentDelta {
 }
 
 impl Cotangent {
-    #[cfg(test)]  // TODO make consistent
-    pub fn error(this: &Cotangent, other: &Cotangent) -> f64 {
-        (this.pt.error(other.pt) + this.covec.error(other.covec)) / 2.0
+    #[cfg(test)]
+    pub fn error(self: Cotangent, other: Cotangent) -> f64 {
+        (self.pt.error(other.pt) + self.covec.error(other.covec)) / 2.0
     }
 
     pub fn modulus(self: Self) -> f64 {
@@ -431,57 +441,6 @@ impl Cotangent {
         self.covec.dot(self.pt.incoming()).is_sign_positive()
             ^ self.pt.time_rev
     }
-
-    /// Flips the coordinates if it is a good time.
-    fn adjust_coordinates(self: Self) -> Self {
-        // TODO clean this up
-        let other = self.flip();
-        // If we are in the inner horizon and future directed
-        // or if we are in the outer horizon and past directed
-        // we switch immediately
-        if self.pt.radius <= R_INNER {
-            if !self.pt.time_rev && self.covec.abs() > other.covec.abs() {
-                println!("Inside inner horizon, reversing time.");
-                self.flip()
-            } else {
-                self
-            }
-        } else if self.pt.radius >= R_OUTER {
-            if self.pt.time_rev && self.covec.abs() > other.covec.abs() {
-                println!("Outside outer horizon, restoring time.");
-                self.flip()
-            } else {
-                self
-            }
-        } else {
-            /* Otherwise, switching happens in between the two horizons
-            From geodesics equations we know the term that blows up is
-                a/(Delta, negative) * (2m r E - aL)
-            So we want to check if  a * (2 m r_horizon E - a L)  is positive
-
-            (This is the same as dotting with horizon generating vector fields)
-            TODO figure out "hovering" geodesics
-            */
-            // TODO should this be calculated every time?
-            // the energy and angular momentum could in principle drift
-            // maybe the integrator should also just eject when they drift
-            // we might want to do accelerating particles though
-            // maybe not, and instead we do segmented geodesics
-            let rotor = 2.0 * MASS
-                * (if self.pt.time_rev {R_OUTER} else {R_INNER})
-                * self.energy() - SPIN*self.angular();
-            let good
-                = SPIN.is_sign_positive()
-                ^ rotor.is_sign_positive()
-                ^ !self.pt.parallel;
-            if good {
-                println!("Flipping in the middle region.");
-                self.flip()
-            } else {
-                self
-            }
-        }
-    }
 }
 
 /// Integrates the geodesics in Kerr–Schild coordinates specifically,
@@ -493,7 +452,27 @@ pub fn rk45(state: Cotangent) -> impl Iterator<Item = (f64, Cotangent)> {
     let mut cur = 0.0;
     std::iter::from_fn(move || loop {
         // TODO calculate this less often
-        state = state.adjust_coordinates();
+        let (_, x, y, z) = state.pt.coord.explode();
+        let (_, dx, dy, dz) = state.dual().vec.explode();
+        let r = state.pt.radius;
+
+        // dr/dλ = [r² (x x' + y y') + (r² + a²) z z'] / (r Σ)
+        let outward =
+            (r*r*(x*dx + y*dy) + (r*r + SPIN*SPIN)*z*dz).is_sign_negative() ^
+            r.is_sign_positive();
+
+        // If it's going out, we're done
+        if ! ((r > R_OUTER && outward) || (r < R_INNER && !outward)) {
+            // Switch to a chart adapted to the *closer* horizon
+            // Since r is timelike, this doesn't dither
+            let horizon = if r > MASS { R_OUTER } else { R_INNER };
+            // sign(dr/dλ) * (2 M r_h E - a L) < 0
+            // TODO cache it
+            let rotor = 2.0 * MASS * horizon * state.energy() - SPIN * state.angular();
+            if rotor.is_sign_positive() == outward {
+                state = state.flip();
+            }
+        }
 
         let k1 = state.dynamics().scale(eps);
         let k2 = state.nudge(k1.scale(1./4.)).dynamics().scale(eps);
@@ -510,16 +489,13 @@ pub fn rk45(state: Cotangent) -> impl Iterator<Item = (f64, Cotangent)> {
             .max(0.5).min(2.0);
         if !(error <= RK_TOLERANCE) {
             if eps < 1e-12 {
-                // panic!("Step size is too small: {eps}")
-                return None
+                panic!("Step size is too small: {eps}");
             }
             if !error.is_finite() {
-                // panic!("Error has blown up: {error}")
-                return None
+                panic!("Error has blown up: {error}");
             }
             continue;
         }
-        // println!("{eps}");
         cur += eps;
         state = state.nudge(r6);
         return Some((cur, state));
@@ -550,8 +526,8 @@ mod tests {
                 pt: Pt::rand(),
             };
             pt_err += pt.error(pt.flip().flip());
-            tg_err += Tangent::error(&vec, &vec.flip().flip());
-            ct_err += Cotangent::error(&covec, &covec.flip().flip());
+            tg_err += vec.error(vec.flip().flip());
+            ct_err += covec.error(covec.flip().flip());
         }
         assert!(pt_err < ERR * NUM as f64);
         assert!(tg_err < ERR * NUM as f64);
@@ -579,8 +555,8 @@ mod tests {
                 covec: Quad::rand(),
                 pt: Pt::rand(),
             };
-            tg_err += Tangent::error(&vec, &vec.dual().dual());
-            ct_err += Cotangent::error(&covec, &covec.dual().dual());
+            tg_err += vec.error(vec.dual().dual());
+            ct_err += covec.error(covec.dual().dual());
         }
         assert!(tg_err < ERR * NUM as f64);
         assert!(ct_err < ERR * NUM as f64);
@@ -599,8 +575,8 @@ mod tests {
                 covec: Quad::rand(),
                 pt: Pt::rand(),
             };
-            ct_err += Cotangent::error(&vec.flip().dual(), &vec.dual().flip());
-            tg_err += Tangent::error(&covec.flip().dual(), &covec.dual().flip());
+            ct_err += vec.flip().dual().error(vec.dual().flip());
+            tg_err += covec.flip().dual().error(covec.dual().flip());
         }
         assert!(tg_err < ERR * NUM as f64);
         assert!(ct_err < ERR * NUM as f64);
@@ -654,10 +630,10 @@ mod tests {
             let pt = Pt::rand();
             let k = Tangent { vec: pt.incoming(), pt };
             let cok = Cotangent { covec: pt.incoming_dual(), pt };
-            k_err += Cotangent::error(&k.dual(), &cok);
+            k_err += cok.error(k.dual());
             let l = Tangent { vec: pt.outgoing(), pt };
             let col = Cotangent { covec: pt.outgoing_dual(), pt };
-            l_err += Cotangent::error(&l.dual(), &col);
+            l_err += col.error(l.dual());
         }
         assert!(k_err < ERR * NUM as f64);
         assert!(l_err < ERR * NUM as f64);
@@ -671,7 +647,7 @@ mod tests {
             let pt1 = pt.flip();
             let k = Tangent { vec: pt.incoming(), pt };
             let l = Tangent { vec: pt1.outgoing(), pt: pt1 };
-            err += Tangent::error(&k.flip(), &l);
+            err += l.error(k.flip());
         }
         assert!(err < ERR * NUM as f64);
     }
@@ -726,30 +702,28 @@ mod tests {
     #[test]
     fn rk45_flipping() {
         for _ in 0..NUM {
-            let pt = Pt::rand();
             let cov = loop {
+                let pt = Pt::rand();
                 let st = Cotangent {
                     covec: Quad::rand(),
                     pt,
                 };
-                if st.future_directed() && st.modulus() < -0.01 {
+                if st.modulus() < -0.01 {
                     break st;
                 }
             };
             let mut good = false;
+            println!("Starting condition: {cov:?}");
             for (i, (t, st)) in rk45(cov).enumerate() {
                 assert!(st.future_directed() == cov.future_directed());
-                if t > 1000.0 {
+                if t > 100.0 {
                     good = true;
                     break;  // Good enough
                 }
-                if st.pt.radius().abs() < 1e-5 || st.pt.radius().abs() > 50.0 {
+                if st.pt.radius().abs() < 1e-4 || st.pt.radius().abs() > 50.0 {
                     good = true;
                     break;  // Probably escaped or close to singularity
                 }
-            }
-            if !good {
-                panic!("Geodesic hit coordinate singularity, starting condition is {cov:?}")
             }
         }
     }

@@ -28,7 +28,7 @@ fn main() {
     let time = std::time::SystemTime::now();
     for (i, (t, st)) in rk45(cov).enumerate() {
         let (_, x, y, z) = boyer_lindquist::Pt::from_kerr_schild(st.pt).coord.explode();
-        // writeln!(stdout, "{i},{:},{:},{:},{:},{:}", t, x, y, z, st.pt.radius()).unwrap();
+        writeln!(stdout, "{i},{:},{:},{:},{:},{:}", t, x, y, z, st.pt.radius()).unwrap();
         if i % 100 == 0 {
             writeln!(stderr, "#{i:>5}  t={:>5.2}  r={:>5.2}  m={:>10.7}  E={:>10.7}  L={:>10.7}  Q={:>10.7}  future: {}",
                 t, st.pt.radius(),
@@ -36,7 +36,7 @@ fn main() {
                 st.future_directed()
             ).unwrap();
         }
-        if t > 50.0 || i > 10000 { break; }
+        if t > 50.0 || i > 200000 { break; }
     }
     stdout.flush().unwrap();
     writeln!(stderr, "Elapsed: {:?}", time.elapsed()).unwrap();
