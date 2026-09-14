@@ -83,10 +83,7 @@ impl Quad {
 
     #[inline]
     pub fn error(self: Quad, other: Quad) -> f64 {
-        ((self.0 - other.0).abs()
-        + (self.1 - other.1).abs()
-        + (self.2 - other.2).abs()
-        + (self.3 - other.3).abs()) / 4.0
+        (self - other).abs()
     }
 
     #[cfg(test)]

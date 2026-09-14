@@ -1,5 +1,5 @@
 # TODOs
-- Fix the flipping scheduling of KS coordinates
+- Fix the flip_modulus numerical inaccuracy
 - Correct and cheap future orientation
 - Native display
 - Better UI for entering initial conditions

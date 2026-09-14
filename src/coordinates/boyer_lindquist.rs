@@ -42,7 +42,7 @@ impl Pt {
     }
 
     /// Returns the cosmological region
-    pub fn region(self: Self) -> Region {
+    pub fn region(self) -> Region {
         let r = self.radius();
         if r < R_INNER {
             (self.base, if self.shift {RegionType::UsSing} else {RegionType::ParaSing})
