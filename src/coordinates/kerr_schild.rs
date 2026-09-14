@@ -507,8 +507,10 @@ pub fn rk45(state: Cotangent) -> impl Iterator<Item = (f64, Cotangent)> {
         let r6 = k1.scale(16./135.) + k3.scale(6656./12825.) + k4.scale(28561./56430.) + k5.scale(-9./50.) + k6.scale(2./55.);
 
         let error = r5.error(r6);
+        let old_eps = eps;
         eps *= (0.9 * f64::powf(RK_TOLERANCE / error, 1./5.))
             .clamp(0.5, 2.0);
+        eps = eps.min(1e5);
         if !(error <= RK_TOLERANCE) {
             if eps < 1e-12 {
                 panic!("Step size is too small: {eps}");
@@ -518,7 +520,7 @@ pub fn rk45(state: Cotangent) -> impl Iterator<Item = (f64, Cotangent)> {
             }
             continue;
         }
-        cur += eps;
+        cur += old_eps;
         state = state.nudge(r6);
 
         // Energy is trivially preserved; carter's constant is a bit more expensive
