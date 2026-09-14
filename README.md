@@ -1,5 +1,5 @@
 # TODOs
-- Fix the flip_modulus numerical inaccuracy
-- Correct and cheap future orientation
 - Native display
 - Better UI for entering initial conditions
+- Write a ray tracer
+- Implement an integral of motion based version

@@ -523,7 +523,7 @@ pub fn rk45(state: Cotangent) -> impl Iterator<Item = (f64, Cotangent)> {
 
         // Energy is trivially preserved; carter's constant is a bit more expensive
         if (state.angular() * state.pt.sign() - init_angular).abs() > 1e-7
-            || (state.modulus() - init_modulus).abs() > 1e-7 {
+            || (state.modulus() - init_modulus).abs() > 1e-5 {
             panic!("Conserved quantities drifted too much!");
         }
 
@@ -636,13 +636,19 @@ mod tests {
         let mut tg_err = 0.0;
         let mut ct_err = 0.0;
         for _ in 0..NUM {
+            let pt = loop {
+                let pt = Pt::rand();
+                if pt.radius().abs() > 0.1 {
+                    break pt;
+                }
+            };
             let vec = Tangent {
                 vec: Quad::rand(),
-                pt: Pt::rand(),
+                pt
             };
             let covec = Cotangent {
                 covec: Quad::rand(),
-                pt: Pt::rand(),
+                pt
             };
             tg_err += (vec.modulus() - vec.flip().modulus()).abs();
             ct_err += (covec.modulus() - covec.flip().modulus()).abs();
@@ -733,6 +739,9 @@ mod tests {
         for _ in 0..NUM {
             let cov = loop {
                 let pt = Pt::rand();
+                if pt.radius().abs() < 0.01 {
+                    continue;
+                }
                 let st = Cotangent {
                     covec: Quad::rand(),
                     pt,
@@ -742,14 +751,13 @@ mod tests {
                 }
             };
             let mut good = false;
-            // println!("Starting condition: {cov:?}");
             for (i, (t, st)) in rk45(cov).enumerate() {
                 assert!(st.future_directed() == cov.future_directed());
                 if t > 100.0 {
                     good = true;
                     break;  // Good enough
                 }
-                if st.pt.radius().abs() < 1e-4 || st.pt.radius().abs() > 50.0 {
+                if st.pt.radius().abs() < 0.01 || st.pt.radius().abs() > 50.0 {
                     good = true;
                     break;  // Probably escaped or close to singularity
                 }

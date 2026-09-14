@@ -1,6 +1,6 @@
 pub const MASS: f64 = 1.0;
 pub const SPIN: f64 = 0.8;
-const SQRTMA: f64 = 0.6; // f64::sqrt(MASS*MASS - SPIN*SPIN)
+const SQRTMA: f64 = 0.6; // f64::sqrt(MASS*MASS - SPIN*SPIN) is not a const
 pub const R_OUTER: f64 = MASS + SQRTMA;
 pub const R_INNER: f64 = MASS - SQRTMA;
 /// Surface gravity at the outer horizon
