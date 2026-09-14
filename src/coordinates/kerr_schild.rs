@@ -52,7 +52,9 @@ fn flip_tangent(
     ((t,x,y), (dt,dx,dy))
 }
 
-// This happens to work because flipping is an involution
+// This happens to work because flipping is an involution.
+// We want to compute the derivative of the inverse function,
+// at the *output* of flip().
 fn flip_cotangent(
     t0: f64, x0: f64, y0: f64, z0: f64, rev: bool,
     d_dt: f64, d_dx: f64, d_dy: f64, d_dz: f64
@@ -61,6 +63,8 @@ fn flip_cotangent(
     let mut d_dt = d_dt;
     let mut d_dx = d_dx;
     let mut d_dy = d_dy;
+    // Undocumented but feeding numbers into the shadow computes
+    // the vector-jacobian product, as one might expect.
     let (d_dt0, d_dx0, d_dy0, d_dz0) = _rflip(
         t, x, y, z0, rev,
         &mut t, &mut d_dt, &mut x, &mut d_dx, &mut y, &mut d_dy
@@ -82,6 +86,9 @@ fn diff_inv_sq(x: f64, y: f64, z: f64, rev: bool, qt: f64, qx: f64, qy: f64, qz:
     (r.1, r.2, r.3)
 }
 
+// TODO profile to see if including this in Pt is faster
+// what exactly should we include? what about Delta? Sigma?
+// should the radius be included or computed on the fly?
 #[inline]
 fn ks_scalar(z: f64, r: f64) -> f64 {
     MASS * (r.powi(3))/(r.powi(4) + (SPIN*SPIN) * (z*z))
@@ -103,7 +110,7 @@ pub struct Pt {
     /// portion with r > R_OUTER, i.e. whether the coordinate patch is flipped
     /// upside down.
     pub time_rev: bool,
-    /// Cached radius, probably the right move?
+    /// This stores the sign of the radius, as well as caching the radius value.
     radius: f64,
 }
 
@@ -691,7 +698,7 @@ mod tests {
             ),
         }.dual();
         for (i, (t, st)) in rk45(cov).enumerate() {
-            if t > 10000.0 || i > 1000_000 {
+            if t > 10000.0 || i > 1_000_000 {
                 assert!((st.modulus() - cov.modulus()).abs() < 1e-12);
                 assert!((st.energy() - cov.energy()).abs() < 1e-12);
                 assert!((st.angular() - cov.angular()).abs() < 1e-12);
