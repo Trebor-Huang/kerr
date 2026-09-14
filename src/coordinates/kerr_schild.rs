@@ -128,6 +128,15 @@ impl Pt {
         self.radius
     }
 
+    #[inline]
+    pub fn sign(self) -> f64 {
+        if self.parallel ^ self.time_rev {
+            -1.0
+        } else {
+            1.0
+        }
+    }
+
     #[cfg(test)]
     pub fn error(self: Pt, other: Pt) -> f64 {
         assert_eq!(self.base, other.base);
@@ -203,7 +212,7 @@ impl Pt {
         let (dt, dx, dy, dz) = delta.explode();
         let new_coord = self.coord + delta;
         let z1 = new_coord.explode().3;
-        if (z.signum() * z1.signum()).is_sign_negative() {
+        if z.signum() * z1.signum() < 0.0 {
             let u = - z / dz;
             let x0 = x + u * dx;
             let y0 = y + u * dy;
@@ -415,6 +424,7 @@ impl Cotangent {
         let pl = self.covec.dot(l);
         let kl = self.pt.incoming_outgoing_dot();
         let sigma = r*r + (SPIN*SPIN) * (z*z) / (r*r);
+        // TODO cancellation
         r*r * self.modulus() - 2.0 * sigma * pk * pl / kl
     }
 
@@ -455,11 +465,15 @@ impl Cotangent {
 pub fn rk45(state: Cotangent) -> impl Iterator<Item = (f64, Cotangent)> {
     // Assumes we are future-directed and timelike
     let mut state = state;
+    let init_angular = state.angular() * state.pt.sign();
+    let init_modulus = state.modulus();
+
+    let outer_sign = (2.0 * MASS * R_OUTER * state.energy() - SPIN * state.angular()).signum() * state.pt.sign();
+    let inner_sign = (2.0 * MASS * R_INNER * state.energy() - SPIN * state.angular()).signum() * state.pt.sign();
+
     let mut eps = 1e-3;
     let mut cur = 0.0;
     std::iter::from_fn(move || loop {
-        // TODO bail if conserved quantities drift too much
-
         // TODO calculate this less often
         let (_, x, y, z) = state.pt.coord.explode();
         let (_, dx, dy, dz) = state.dual().vec.explode();
@@ -474,11 +488,10 @@ pub fn rk45(state: Cotangent) -> impl Iterator<Item = (f64, Cotangent)> {
         if ! ((r > R_OUTER && outward) || (r < R_INNER && !outward)) {
             // Switch to a chart adapted to the *closer* horizon
             // Since r is timelike, this doesn't dither
-            let horizon = if r > MASS { R_OUTER } else { R_INNER };
+            let rotor_sign = if r > MASS { outer_sign } else { inner_sign };
             // sign(dr/dλ) * (2 M r_h E - a L) < 0
-            // TODO cache it
-            let rotor = 2.0 * MASS * horizon * state.energy() - SPIN * state.angular();
-            if rotor.is_sign_positive() == outward {
+            // TODO deal with "lazy geodesics" with E = L = 0
+            if (rotor_sign * state.pt.sign()).is_sign_positive() == outward {
                 state = state.flip();
             }
         }
@@ -507,6 +520,13 @@ pub fn rk45(state: Cotangent) -> impl Iterator<Item = (f64, Cotangent)> {
         }
         cur += eps;
         state = state.nudge(r6);
+
+        // Energy is trivially preserved; carter's constant is a bit more expensive
+        if (state.angular() * state.pt.sign() - init_angular).abs() > 1e-7
+            || (state.modulus() - init_modulus).abs() > 1e-7 {
+            panic!("Conserved quantities drifted too much!");
+        }
+
         return Some((cur, state));
     })
 }
@@ -722,7 +742,7 @@ mod tests {
                 }
             };
             let mut good = false;
-            println!("Starting condition: {cov:?}");
+            // println!("Starting condition: {cov:?}");
             for (i, (t, st)) in rk45(cov).enumerate() {
                 assert!(st.future_directed() == cov.future_directed());
                 if t > 100.0 {
